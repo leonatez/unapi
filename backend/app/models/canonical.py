@@ -56,6 +56,13 @@ class DiffSeverity(str, Enum):
     info = "info"
 
 
+class PipelineStatus(str, Enum):
+    markdown_ready = "markdown_ready"
+    extracting = "extracting"
+    extraction_review = "extraction_review"
+    complete = "complete"
+
+
 # ─── Security ─────────────────────────────────────────────────────────────────
 
 class SecurityProfileCreate(BaseModel):
@@ -77,12 +84,14 @@ class ApiDocumentCreate(BaseModel):
     doc_date: Optional[str] = None
     raw_format: str                           # "docx" | "xlsx" | "md" | "pdf"
     markdown_content: Optional[str] = None   # intermediate after markitdown
+    pipeline_status: PipelineStatus = PipelineStatus.markdown_ready
+    parser: str = "markitdown"
 
 
 # ─── API ──────────────────────────────────────────────────────────────────────
 
 class ApiCreate(BaseModel):
-    document_id: str
+    flow_id: str
     name: str
     description: Optional[str] = None
     method: Optional[HttpMethod] = None
@@ -171,3 +180,17 @@ class ExtractedDocument(BaseModel):
     apis: list[dict] = Field(default_factory=list)  # ApiCreate + messages + errors
     flows: list[FlowCreate] = Field(default_factory=list)
     edge_cases: list[EdgeCaseCreate] = Field(default_factory=list)
+
+
+class ExtractionDraft(BaseModel):
+    """AI extraction output stored in api_document.extraction_draft before user approval.
+
+    Each flow contains its APIs directly:
+    {
+      name, description,
+      steps: [{order, label, actor_from, actor_to, api_name}],
+      apis: [{name, method, path, exposed_by, is_idempotent, security_profile,
+              request, response, errors, edge_cases, confidence_score}]
+    }
+    """
+    flows: list[dict] = Field(default_factory=list)

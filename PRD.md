@@ -306,6 +306,87 @@ Compare **our internal doc vs a partner's doc for the same API**. Cross-partner 
 
 ---
 
+## 4.9 Human-in-the-Loop (HITL) Review
+
+### Why It Exists
+
+LLM extraction is probabilistic. On real-world fintech docs — multilingual tables, merged cells, deeply nested schemas — the model may misclassify fields, miss enums, or produce incorrect types. The confidence score system flags these cases, but a human must resolve them before the data is trusted for comparison or export.
+
+HITL is not optional polish — it is the **quality gate** between raw LLM output and a trusted canonical record.
+
+### Where It Applies
+
+HITL review is triggered at two levels:
+
+1. **Field-level**: any `api_field`, `api_error`, or `api` record where `confidence_score < threshold` (default: 0.85)
+2. **Document-level**: after initial ingestion, a reviewer can inspect the full extracted tree and accept, edit, or reject any node
+
+### Review Workflow
+
+```
+Upload Document
+     │
+     ▼
+LLM Extraction (automated)
+     │
+     ▼
+Confidence Scoring per field
+     │
+     ├─── All fields high confidence ───► Auto-accepted, document marked "verified"
+     │
+     └─── Low-confidence flags exist ──► Document enters "needs review" state
+                                               │
+                                               ▼
+                                    Reviewer opens API spec panel
+                                    Flagged fields highlighted in UI
+                                               │
+                                    ┌──────────┴──────────┐
+                                    │                     │
+                               Accept as-is          Edit value
+                                    │                     │
+                                    └──────────┬──────────┘
+                                               ▼
+                                    Field marked "human-verified"
+                                    confidence_score set to 1.0
+                                               │
+                                               ▼
+                                    Document fully verified
+                                    → safe for diff / export
+```
+
+### Data Model Impact
+
+Each reviewed entity carries:
+
+* `confidence_score` — LLM-assigned (0.0–1.0), reset to `1.0` after human correction
+* `is_human_verified` — bool flag set when a reviewer explicitly accepts or edits the value
+* `review_note` — optional freetext from reviewer (e.g. "source doc uses Vietnamese shorthand")
+
+### Review States (Document Level)
+
+| State | Meaning |
+|---|---|
+| `pending` | Upload complete, extraction in progress |
+| `needs_review` | Extraction done; one or more low-confidence fields exist |
+| `verified` | All fields human-verified or above confidence threshold |
+| `rejected` | Reviewer determined extraction is too poor; document must be re-uploaded |
+
+### UI Behavior
+
+* Flagged fields rendered with a yellow ⚠️ badge in the API spec panel
+* Reviewer can inline-edit any field value directly in the spec panel
+* "Approve all above 0.9" bulk action for high-volume docs
+* Progress indicator: `X of Y fields verified`
+* Documents in `needs_review` state are excluded from diff comparisons until verified
+
+### Design Principle
+
+> **LLM extracts. Humans certify. The diff engine only runs on certified data.**
+
+This ensures that breaking-change detection is never a false positive caused by a parsing error — it is always a real divergence between two human-verified documents.
+
+---
+
 # 5. 🗂️ Data Model (Summary)
 
 ## Key Entities
@@ -388,7 +469,7 @@ Compare **our internal doc vs a partner's doc for the same API**. Cross-partner 
 
 * Markdown conversion using library `markitdown`
 * Sheet/section classifier (rule-based + LLM-assisted)
-* LLM extraction: `gemini-3.1-flash-lite-preview` / local LLM
+* LLM extraction: `gemini-2.0-flash` / local LLM
 * Language: extract in any language, normalize to English
 
 ## Frontend

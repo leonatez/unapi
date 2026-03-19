@@ -1,55 +1,133 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { ApiDef, ApiField, ApiError, EdgeCase, api } from "@/lib/api/client";
 
-interface Props { api: ApiDef }
+interface Props {
+  api: ApiDef;
+  onApiUpdated?: (updated: ApiDef) => void;
+}
 
-export default function ApiSpecPanel({ api: apiDef }: Props) {
+// ─── Tiny reusable primitives ──────────────────────────────────
+
+function Inp({ value, onChange, className = "", placeholder = "" }: {
+  value: string; onChange: (v: string) => void; className?: string; placeholder?: string;
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className={`bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500 ${className}`}
+    />
+  );
+}
+
+function Sel({ value, onChange, options }: {
+  value: string; onChange: (v: string) => void; options: string[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500"
+    >
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+function SaveCancel({ onSave, onCancel, saving }: {
+  onSave: () => void; onCancel: () => void; saving?: boolean;
+}) {
+  return (
+    <span className="flex gap-1">
+      <button onClick={onSave} disabled={saving}
+        className="px-2 py-0.5 text-xs rounded bg-indigo-700 hover:bg-indigo-600 text-white disabled:opacity-50">
+        {saving ? "…" : "Save"}
+      </button>
+      <button onClick={onCancel}
+        className="px-2 py-0.5 text-xs rounded bg-gray-700 hover:bg-gray-600 text-white">
+        Cancel
+      </button>
+    </span>
+  );
+}
+
+// ─── Main panel ────────────────────────────────────────────────
+
+export default function ApiSpecPanel({ api: apiDef, onApiUpdated }: Props) {
+  const [localApi, setLocalApi] = useState<ApiDef>(apiDef);
   const [errors, setErrors] = useState<ApiError[]>([]);
   const [edgeCases, setEdgeCases] = useState<EdgeCase[]>([]);
   const [tab, setTab] = useState<"request" | "response" | "errors" | "edge">("request");
+  const [editingHeader, setEditingHeader] = useState(false);
+
+  useEffect(() => {
+    setLocalApi(apiDef);
+    setEditingHeader(false);
+  }, [apiDef.id]);
 
   useEffect(() => {
     api.getApiErrors(apiDef.id).then(setErrors);
     api.getApiEdgeCases(apiDef.id).then(setEdgeCases);
   }, [apiDef.id]);
 
-  const request = apiDef.api_message?.find((m) => m.message_type === "request");
-  const response = apiDef.api_message?.find((m) => m.message_type === "response");
+  const refreshFields = useCallback(async () => {
+    const fresh = await api.getApi(localApi.id);
+    setLocalApi(fresh);
+    if (onApiUpdated) onApiUpdated(fresh);
+  }, [localApi.id, onApiUpdated]);
+
+  const request = localApi.api_message?.find((m) => m.message_type === "request");
+  const response = localApi.api_message?.find((m) => m.message_type === "response");
 
   return (
     <div className="p-6 max-w-4xl">
       {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          {apiDef.method && (
-            <span className={`font-mono font-bold px-2 py-0.5 rounded text-sm ${
-              apiDef.method === "GET" ? "bg-green-900 text-green-300" :
-              apiDef.method === "POST" ? "bg-blue-900 text-blue-300" :
-              apiDef.method === "PUT" ? "bg-yellow-900 text-yellow-300" : "bg-red-900 text-red-300"
-            }`}>{apiDef.method}</span>
-          )}
-          <span className="font-mono text-gray-300 text-sm">{apiDef.path || "—"}</span>
-          <span className={`text-xs px-2 py-0.5 rounded ${
-            apiDef.exposed_by === "Monee" ? "bg-indigo-900 text-indigo-300" : "bg-amber-900 text-amber-300"
-          }`}>{apiDef.exposed_by} exposes</span>
-          {apiDef.confidence_score < 0.8 && (
-            <span className="text-xs px-2 py-0.5 rounded bg-orange-900 text-orange-300" title="Low parse confidence">
-              ⚠ low confidence
-            </span>
-          )}
-        </div>
-        <h2 className="text-xl font-bold text-white">{apiDef.name}</h2>
-        {apiDef.description && <p className="text-gray-400 text-sm mt-1">{apiDef.description}</p>}
-        {apiDef.security_profile && (
-          <div className="mt-3 p-3 rounded bg-gray-800 text-xs text-gray-400">
-            <span className="text-gray-300 font-medium">Security: </span>
-            {apiDef.security_profile.auth_type} ·{" "}
-            {apiDef.security_profile.algorithm} ·{" "}
-            Signature: [{apiDef.security_profile.signed_fields?.join(" + ")}]
+      {editingHeader ? (
+        <ApiHeaderEdit
+          apiDef={localApi}
+          onSaved={(updated) => { setLocalApi(updated); setEditingHeader(false); if (onApiUpdated) onApiUpdated(updated); }}
+          onCancel={() => setEditingHeader(false)}
+        />
+      ) : (
+        <div className="mb-6 group">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2 flex-wrap">
+                {localApi.method && (
+                  <span className={`font-mono font-bold px-2 py-0.5 rounded text-sm ${
+                    localApi.method === "GET" ? "bg-green-900 text-green-300" :
+                    localApi.method === "POST" ? "bg-blue-900 text-blue-300" :
+                    localApi.method === "PUT" ? "bg-yellow-900 text-yellow-300" : "bg-red-900 text-red-300"
+                  }`}>{localApi.method}</span>
+                )}
+                <span className="font-mono text-gray-300 text-sm">{localApi.path || "—"}</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${
+                  localApi.exposed_by === "Monee" ? "bg-indigo-900 text-indigo-300" : "bg-amber-900 text-amber-300"
+                }`}>{localApi.exposed_by} exposes</span>
+                {localApi.confidence_score < 0.8 && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-orange-900 text-orange-300">⚠ low confidence</span>
+                )}
+              </div>
+              <h2 className="text-xl font-bold text-white">{localApi.name}</h2>
+              {localApi.description && <p className="text-gray-400 text-sm mt-1">{localApi.description}</p>}
+              {localApi.security_profile && (
+                <div className="mt-3 p-3 rounded bg-gray-800 text-xs text-gray-400">
+                  <span className="text-gray-300 font-medium">Security: </span>
+                  {localApi.security_profile.auth_type} · {localApi.security_profile.algorithm} ·{" "}
+                  Signature: [{localApi.security_profile.signed_fields?.join(" + ")}]
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setEditingHeader(true)}
+              className="ml-4 px-3 py-1.5 text-xs rounded border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-white shrink-0">
+              Edit API
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-gray-800">
@@ -71,115 +149,540 @@ export default function ApiSpecPanel({ api: apiDef }: Props) {
 
       {/* Tab content */}
       {tab === "request" && (
-        <FieldTable fields={request?.api_field || []} example={request?.example_json} />
+        <FieldTable
+          apiId={localApi.id}
+          messageType="request"
+          fields={request?.api_field || []}
+          example={request?.example_json}
+          onChanged={refreshFields}
+        />
       )}
       {tab === "response" && (
-        <FieldTable fields={response?.api_field || []} example={response?.example_json} />
+        <FieldTable
+          apiId={localApi.id}
+          messageType="response"
+          fields={response?.api_field || []}
+          example={response?.example_json}
+          onChanged={refreshFields}
+        />
       )}
-      {tab === "errors" && <ErrorTable errors={errors} />}
+      {tab === "errors" && (
+        <ErrorTable
+          apiId={localApi.id}
+          errors={errors}
+          onChange={setErrors}
+        />
+      )}
       {tab === "edge" && <EdgeCaseTable cases={edgeCases} />}
     </div>
   );
 }
 
-function FieldTable({ fields, example }: { fields: ApiField[]; example?: string | null }) {
+// ─── API Header Edit form ──────────────────────────────────────
+
+function ApiHeaderEdit({ apiDef, onSaved, onCancel }: {
+  apiDef: ApiDef;
+  onSaved: (updated: ApiDef) => void;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: apiDef.name ?? "",
+    description: apiDef.description ?? "",
+    method: apiDef.method ?? "",
+    path: apiDef.path ?? "",
+    exposed_by: apiDef.exposed_by ?? "Monee",
+    is_idempotent: apiDef.is_idempotent ?? false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const save = async () => {
+    setSaving(true);
+    setErr("");
+    try {
+      const updated = await api.updateApi(apiDef.id, {
+        name: form.name || undefined,
+        description: form.description || undefined,
+        method: form.method || undefined,
+        path: form.path || undefined,
+        exposed_by: form.exposed_by as "Monee" | "Bank",
+        is_idempotent: form.is_idempotent,
+      });
+      onSaved(updated as ApiDef);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (k: string) => (v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <div className="mb-6 p-4 rounded-lg border border-indigo-700 bg-gray-900">
+      <div className="text-xs text-indigo-400 uppercase tracking-wide mb-3">Editing API</div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="col-span-2">
+          <label className="text-xs text-gray-500 block mb-1">Name</label>
+          <Inp value={form.name} onChange={set("name")} className="w-full" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Method</label>
+          <Sel value={form.method} onChange={set("method")} options={["", "GET", "POST", "PUT", "PATCH", "DELETE"]} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Exposed by</label>
+          <Sel value={form.exposed_by} onChange={set("exposed_by")} options={["Monee", "Bank"]} />
+        </div>
+        <div className="col-span-2">
+          <label className="text-xs text-gray-500 block mb-1">Path</label>
+          <Inp value={form.path} onChange={set("path")} className="w-full" placeholder="/api/v1/..." />
+        </div>
+        <div className="col-span-2">
+          <label className="text-xs text-gray-500 block mb-1">Description</label>
+          <textarea
+            value={form.description}
+            onChange={(e) => set("description")(e.target.value)}
+            rows={2}
+            className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="idempotent" checked={form.is_idempotent}
+            onChange={(e) => set("is_idempotent")(e.target.checked)} className="accent-indigo-500" />
+          <label htmlFor="idempotent" className="text-xs text-gray-400">Idempotent</label>
+        </div>
+      </div>
+      {err && <p className="text-red-400 text-xs mb-2">{err}</p>}
+      <div className="flex gap-2">
+        <SaveCancel onSave={save} onCancel={onCancel} saving={saving} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Field Table ───────────────────────────────────────────────
+
+function FieldTable({ apiId, messageType, fields, example, onChanged }: {
+  apiId: string;
+  messageType: "request" | "response";
+  fields: ApiField[];
+  example?: string | null;
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+
   const roots = fields.filter((f) => !f.parent_field_id);
-  if (roots.length === 0) return <p className="text-gray-500 text-sm">No fields extracted.</p>;
+
   return (
     <div>
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
-            <th className="pb-2 pr-4 font-medium">Field</th>
-            <th className="pb-2 pr-4 font-medium">Type</th>
-            <th className="pb-2 pr-4 font-medium">Req</th>
-            <th className="pb-2 pr-4 font-medium">Max</th>
+            <th className="pb-2 pr-3 font-medium w-40">Field</th>
+            <th className="pb-2 pr-3 font-medium w-24">Type</th>
+            <th className="pb-2 pr-3 font-medium w-12">Req</th>
+            <th className="pb-2 pr-3 font-medium w-16">Max</th>
             <th className="pb-2 font-medium">Description</th>
+            <th className="pb-2 w-16"></th>
           </tr>
         </thead>
         <tbody>
-          {roots.map((f) => <FieldRow key={f.id} field={f} depth={0} allFields={fields} />)}
+          {roots.map((f) => (
+            <FieldRow key={f.id} field={f} depth={0} allFields={fields} apiId={apiId} onChanged={onChanged} />
+          ))}
+          {adding && (
+            <AddFieldRow
+              apiId={apiId}
+              messageType={messageType}
+              onSaved={() => { setAdding(false); onChanged(); }}
+              onCancel={() => setAdding(false)}
+            />
+          )}
         </tbody>
       </table>
+
+      {!adding && (
+        <button onClick={() => setAdding(true)}
+          className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+          + Add field
+        </button>
+      )}
+
       {example && (
         <div className="mt-4">
           <div className="text-xs text-gray-500 mb-1">Example</div>
           <pre className="p-3 rounded bg-gray-800 text-xs text-gray-300 overflow-x-auto">{example}</pre>
         </div>
       )}
+
+      {roots.length === 0 && !adding && (
+        <p className="text-gray-600 text-xs mt-2">No fields extracted. Use + Add field to add manually.</p>
+      )}
     </div>
   );
 }
 
-function FieldRow({ field, depth, allFields }: { field: ApiField; depth: number; allFields: ApiField[] }) {
+function FieldRow({ field, depth, allFields, apiId, onChanged }: {
+  field: ApiField; depth: number; allFields: ApiField[]; apiId: string; onChanged: () => void;
+}) {
   const children = allFields.filter((f) => f.parent_field_id === field.id);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    name: field.name ?? "",
+    description: field.description ?? "",
+    data_type: field.data_type ?? "",
+    max_length: field.max_length ? String(field.max_length) : "",
+    is_required: field.is_required,
+    default_value: field.default_value ?? "",
+    constraints: field.constraints ?? "",
+    is_encrypted: field.is_encrypted,
+    is_deprecated: field.is_deprecated,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.updateField(apiId, field.id, {
+        name: form.name || undefined,
+        description: form.description || undefined,
+        data_type: form.data_type || undefined,
+        max_length: form.max_length ? parseInt(form.max_length) : undefined,
+        is_required: form.is_required,
+        default_value: form.default_value || undefined,
+        constraints: form.constraints || undefined,
+        is_encrypted: form.is_encrypted,
+        is_deprecated: form.is_deprecated,
+      });
+      setEditing(false);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const del = async () => {
+    if (!confirm(`Delete field "${field.name}"?`)) return;
+    await api.deleteField(apiId, field.id);
+    onChanged();
+  };
+
+  const set = (k: string) => (v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
+  if (editing) {
+    return (
+      <>
+        <tr className="bg-gray-900 border-b border-indigo-900">
+          <td colSpan={6} className="py-2 px-3" style={{ paddingLeft: `${depth * 16 + 12}px` }}>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-500">Name</label>
+                <Inp value={form.name} onChange={set("name")} className="w-full mt-0.5" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Type</label>
+                <Sel value={form.data_type} onChange={set("data_type")}
+                  options={["", "String", "Number", "Boolean", "Object", "Array", "Date"]} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Max length</label>
+                <Inp value={form.max_length} onChange={set("max_length")} className="w-full mt-0.5" placeholder="—" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Default</label>
+                <Inp value={form.default_value} onChange={set("default_value")} className="w-full mt-0.5" placeholder="—" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Description</label>
+                <Inp value={form.description} onChange={set("description")} className="w-full mt-0.5" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Constraints</label>
+                <Inp value={form.constraints} onChange={set("constraints")} className="w-full mt-0.5" />
+              </div>
+              <div className="col-span-2 flex gap-4 text-xs text-gray-400 items-center flex-wrap">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={form.is_required} onChange={(e) => set("is_required")(e.target.checked)} className="accent-red-500" />
+                  Required
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={form.is_encrypted} onChange={(e) => set("is_encrypted")(e.target.checked)} className="accent-yellow-500" />
+                  Encrypted
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={form.is_deprecated} onChange={(e) => set("is_deprecated")(e.target.checked)} className="accent-gray-500" />
+                  Deprecated
+                </label>
+              </div>
+              <div className="col-span-2">
+                <SaveCancel onSave={save} onCancel={() => setEditing(false)} saving={saving} />
+              </div>
+            </div>
+          </td>
+        </tr>
+        {children.map((c) => (
+          <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} apiId={apiId} onChanged={onChanged} />
+        ))}
+      </>
+    );
+  }
+
   return (
     <>
-      <tr className="border-b border-gray-900 hover:bg-gray-900/50">
-        <td className="py-2 pr-4 font-mono text-xs" style={{ paddingLeft: `${depth * 16 + 4}px` }}>
+      <tr className="border-b border-gray-900 hover:bg-gray-900/50 group">
+        <td className="py-2 pr-3 font-mono text-xs" style={{ paddingLeft: `${depth * 16 + 4}px` }}>
           <div className="flex items-center gap-1">
-            {field.is_deprecated && <span className="text-gray-600 line-through">{field.name}</span>}
-            {!field.is_deprecated && <span className="text-gray-200">{field.name}</span>}
-            {field.is_encrypted && <span title="Encrypted" className="text-yellow-500">🔒</span>}
-            {field.is_deprecated && <span title="Deprecated" className="text-xs text-gray-600">[dep]</span>}
+            {field.is_deprecated
+              ? <span className="text-gray-600 line-through">{field.name}</span>
+              : <span className="text-gray-200">{field.name}</span>}
+            {field.is_encrypted && <span title="Encrypted">🔒</span>}
+            {field.is_deprecated && <span className="text-xs text-gray-600">[dep]</span>}
             {field.confidence_score < 0.7 && <span title="Low confidence" className="text-orange-500 text-xs">?</span>}
           </div>
           {field.api_field_enum && field.api_field_enum.length > 0 && (
             <div className="text-gray-600 text-xs mt-0.5">[{field.api_field_enum.map((e) => e.value).join(", ")}]</div>
           )}
         </td>
-        <td className="py-2 pr-4 text-xs text-blue-400">{field.data_type || "—"}</td>
-        <td className="py-2 pr-4">
+        <td className="py-2 pr-3 text-xs text-blue-400">{field.data_type || "—"}</td>
+        <td className="py-2 pr-3">
           <span className={`text-xs font-medium ${field.is_required ? "text-red-400" : "text-gray-600"}`}>
             {field.is_required ? "M" : "O"}
           </span>
         </td>
-        <td className="py-2 pr-4 text-xs text-gray-500">{field.max_length || "—"}</td>
+        <td className="py-2 pr-3 text-xs text-gray-500">{field.max_length || "—"}</td>
         <td className="py-2 text-xs text-gray-400">
           {field.description}
           {field.default_value && <span className="text-gray-600"> [default: {field.default_value}]</span>}
           {field.constraints && <div className="text-gray-600 italic">{field.constraints}</div>}
         </td>
+        <td className="py-2 text-right pr-1">
+          <span className="hidden group-hover:inline-flex gap-1">
+            <button onClick={() => setEditing(true)} title="Edit"
+              className="text-gray-500 hover:text-white text-xs px-1">✎</button>
+            <button onClick={del} title="Delete"
+              className="text-gray-600 hover:text-red-400 text-xs px-1">✕</button>
+          </span>
+        </td>
       </tr>
-      {children.map((c) => <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} />)}
+      {children.map((c) => (
+        <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} apiId={apiId} onChanged={onChanged} />
+      ))}
     </>
   );
 }
 
-function ErrorTable({ errors }: { errors: ApiError[] }) {
-  if (errors.length === 0) return <p className="text-gray-500 text-sm">No errors extracted.</p>;
+function AddFieldRow({ apiId, messageType, onSaved, onCancel }: {
+  apiId: string; messageType: "request" | "response"; onSaved: () => void; onCancel: () => void;
+}) {
+  const [form, setForm] = useState({ name: "", data_type: "", is_required: false, description: "" });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!form.name) return;
+    setSaving(true);
+    try {
+      await api.createField(apiId, {
+        message_type: messageType,
+        name: form.name,
+        data_type: form.data_type || undefined,
+        is_required: form.is_required,
+        description: form.description || undefined,
+      });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (k: string) => (v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
   return (
-    <table className="w-full text-sm border-collapse">
-      <thead>
-        <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
-          <th className="pb-2 pr-4 font-medium">HTTP</th>
-          <th className="pb-2 pr-4 font-medium">resultStatus</th>
-          <th className="pb-2 pr-4 font-medium">resultCode</th>
-          <th className="pb-2 font-medium">Message</th>
-        </tr>
-      </thead>
-      <tbody>
-        {errors.map((e) => (
-          <tr key={e.id} className="border-b border-gray-900 hover:bg-gray-900/50">
-            <td className="py-2 pr-4 text-xs font-mono">{e.http_status || "—"}</td>
-            <td className="py-2 pr-4 text-xs font-mono text-purple-400">{e.result_status || "—"}</td>
-            <td className="py-2 pr-4 text-xs font-mono text-yellow-400">{e.result_code || "—"}</td>
-            <td className="py-2 text-xs text-gray-400">{e.result_message || "—"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <tr className="bg-indigo-950/30 border-b border-indigo-900">
+      <td colSpan={6} className="py-2 px-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Inp value={form.name} onChange={set("name")} placeholder="field name *" className="w-32" />
+          <Sel value={form.data_type} onChange={set("data_type")}
+            options={["", "String", "Number", "Boolean", "Object", "Array", "Date"]} />
+          <Inp value={form.description} onChange={set("description")} placeholder="description" className="flex-1 min-w-32" />
+          <label className="flex items-center gap-1 text-xs text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={form.is_required}
+              onChange={(e) => set("is_required")(e.target.checked)} className="accent-red-500" />
+            Required
+          </label>
+          <SaveCancel onSave={save} onCancel={onCancel} saving={saving} />
+        </div>
+      </td>
+    </tr>
   );
 }
+
+// ─── Error Table ───────────────────────────────────────────────
+
+function ErrorTable({ apiId, errors, onChange }: {
+  apiId: string; errors: ApiError[]; onChange: (e: ApiError[]) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this error row?")) return;
+    await api.deleteError(apiId, id);
+    onChange(errors.filter((e) => e.id !== id));
+  };
+
+  const handleUpdate = (updated: ApiError) => {
+    onChange(errors.map((e) => (e.id === updated.id ? updated : e)));
+  };
+
+  const handleCreate = (created: ApiError) => {
+    onChange([...errors, created]);
+    setAdding(false);
+  };
+
+  return (
+    <div>
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
+            <th className="pb-2 pr-3 font-medium w-16">HTTP</th>
+            <th className="pb-2 pr-3 font-medium w-36">resultStatus</th>
+            <th className="pb-2 pr-3 font-medium w-24">resultCode</th>
+            <th className="pb-2 font-medium">Message</th>
+            <th className="pb-2 w-16"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {errors.map((e) => (
+            <ErrorRow key={e.id} error={e} apiId={apiId} onUpdated={handleUpdate} onDeleted={() => handleDelete(e.id)} />
+          ))}
+          {adding && (
+            <AddErrorRow apiId={apiId} onCreated={handleCreate} onCancel={() => setAdding(false)} />
+          )}
+        </tbody>
+      </table>
+      {!adding && (
+        <button onClick={() => setAdding(true)}
+          className="mt-3 text-xs text-indigo-400 hover:text-indigo-300">
+          + Add error
+        </button>
+      )}
+      {errors.length === 0 && !adding && (
+        <p className="text-gray-600 text-xs mt-2">No errors extracted.</p>
+      )}
+    </div>
+  );
+}
+
+function ErrorRow({ error, apiId, onUpdated, onDeleted }: {
+  error: ApiError; apiId: string; onUpdated: (e: ApiError) => void; onDeleted: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    http_status: String(error.http_status ?? ""),
+    result_status: error.result_status ?? "",
+    result_code: error.result_code ?? "",
+    result_message: error.result_message ?? "",
+    condition: error.condition ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await api.updateError(apiId, error.id, {
+        http_status: form.http_status ? parseInt(form.http_status) : undefined,
+        result_status: form.result_status || undefined,
+        result_code: form.result_code || undefined,
+        result_message: form.result_message || undefined,
+        condition: form.condition || undefined,
+      });
+      onUpdated(updated);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (k: string) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  if (editing) {
+    return (
+      <tr className="bg-gray-900 border-b border-indigo-900">
+        <td colSpan={5} className="py-2 px-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Inp value={form.http_status} onChange={set("http_status")} placeholder="200" className="w-16" />
+            <Inp value={form.result_status} onChange={set("result_status")} placeholder="SENTOTP-SUCCESS" className="w-40" />
+            <Inp value={form.result_code} onChange={set("result_code")} placeholder="2007" className="w-24" />
+            <Inp value={form.result_message} onChange={set("result_message")} placeholder="message" className="flex-1 min-w-32" />
+            <Inp value={form.condition} onChange={set("condition")} placeholder="condition (optional)" className="w-40" />
+            <SaveCancel onSave={save} onCancel={() => setEditing(false)} saving={saving} />
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-b border-gray-900 hover:bg-gray-900/50 group">
+      <td className="py-2 pr-3 text-xs font-mono">{error.http_status || "—"}</td>
+      <td className="py-2 pr-3 text-xs font-mono text-purple-400">{error.result_status || "—"}</td>
+      <td className="py-2 pr-3 text-xs font-mono text-yellow-400">{error.result_code || "—"}</td>
+      <td className="py-2 text-xs text-gray-400">{error.result_message || "—"}</td>
+      <td className="py-2 text-right pr-1">
+        <span className="hidden group-hover:inline-flex gap-1">
+          <button onClick={() => setEditing(true)} className="text-gray-500 hover:text-white text-xs px-1">✎</button>
+          <button onClick={onDeleted} className="text-gray-600 hover:text-red-400 text-xs px-1">✕</button>
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function AddErrorRow({ apiId, onCreated, onCancel }: {
+  apiId: string; onCreated: (e: ApiError) => void; onCancel: () => void;
+}) {
+  const [form, setForm] = useState({ http_status: "", result_status: "", result_code: "", result_message: "" });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const created = await api.createError(apiId, {
+        http_status: form.http_status ? parseInt(form.http_status) : undefined,
+        result_status: form.result_status || undefined,
+        result_code: form.result_code || undefined,
+        result_message: form.result_message || undefined,
+      });
+      onCreated(created);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (k: string) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <tr className="bg-indigo-950/30 border-b border-indigo-900">
+      <td colSpan={5} className="py-2 px-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Inp value={form.http_status} onChange={set("http_status")} placeholder="HTTP (e.g. 200)" className="w-20" />
+          <Inp value={form.result_status} onChange={set("result_status")} placeholder="resultStatus" className="w-40" />
+          <Inp value={form.result_code} onChange={set("result_code")} placeholder="resultCode" className="w-24" />
+          <Inp value={form.result_message} onChange={set("result_message")} placeholder="resultMessage" className="flex-1 min-w-32" />
+          <SaveCancel onSave={save} onCancel={onCancel} saving={saving} />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Edge Cases (read-only for now) ───────────────────────────
 
 function EdgeCaseTable({ cases }: { cases: EdgeCase[] }) {
   if (cases.length === 0) return <p className="text-gray-500 text-sm">No edge cases extracted.</p>;
   const actionColor: Record<string, string> = {
-    retry: "text-blue-400",
-    inquiry: "text-yellow-400",
-    next_step: "text-green-400",
-    fail: "text-red-400",
-    end_flow: "text-gray-400",
+    retry: "text-blue-400", inquiry: "text-yellow-400",
+    next_step: "text-green-400", fail: "text-red-400", end_flow: "text-gray-400",
   };
   return (
     <div className="space-y-3">

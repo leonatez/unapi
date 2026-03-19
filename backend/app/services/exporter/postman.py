@@ -12,8 +12,8 @@ def export_postman(document_id: str) -> dict:
 
     apis = (
         db.table("api")
-        .select("*, api_message(*, api_field(*))")
-        .eq("document_id", document_id)
+        .select("*, api_message(*, api_field(*)), flow(document_id)")
+        .eq("flow.document_id", document_id)
         .execute()
     ).data or []
 

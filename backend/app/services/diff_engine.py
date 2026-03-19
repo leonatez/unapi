@@ -12,10 +12,11 @@ from app.models.canonical import DiffSeverity
 
 
 def _fetch_doc_apis(db, document_id: str) -> list[dict]:
+    # APIs are now under flows; join through flow to filter by document_id
     rows = (
         db.table("api")
-        .select("*, api_message(*, api_field(*, api_field_enum(*)))")
-        .eq("document_id", document_id)
+        .select("*, api_message(*, api_field(*, api_field_enum(*))), flow(document_id)")
+        .eq("flow.document_id", document_id)
         .execute()
     )
     return rows.data or []

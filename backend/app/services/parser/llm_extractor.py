@@ -1,7 +1,8 @@
 """
-Step 3: LLM extraction.
-Given a classified Markdown section, extract structured API data.
-Uses Google Gemini with JSON output mode.
+LLM extraction using Google Gemini.
+Provides two modes:
+  - extract_all(markdown): combined single-pass extraction for the new pipeline
+  - extract_document_metadata(markdown, filename): lightweight metadata-only pass
 """
 import json
 import textwrap
@@ -19,7 +20,7 @@ def _init_client():
         _client_initialized = True
 
 
-# ─── Prompts ──────────────────────────────────────────────────
+# ─── System prompt ─────────────────────────────────────────────
 
 _SYSTEM_PROMPT = textwrap.dedent("""
 You are an expert API documentation analyst specializing in fintech integrations.
@@ -28,59 +29,87 @@ Always output ONLY valid JSON. Normalize all descriptions to English.
 Be precise. If a value is unclear, use null. Set confidence_score between 0.0 and 1.0.
 """).strip()
 
-_API_EXTRACTION_PROMPT = textwrap.dedent("""
-Extract all APIs from the following documentation section.
+
+# ─── Combined extraction prompt ────────────────────────────────
+
+_EXTRACT_ALL_PROMPT = textwrap.dedent("""
+Extract all integration flows and their APIs from the following API documentation.
+
 Return a JSON object with this exact structure:
 
 {
-  "apis": [
+  "flows": [
     {
-      "name": "string",
-      "description": "string (English)",
-      "method": "GET|POST|PUT|PATCH|DELETE|null",
-      "path": "string|null",
-      "exposed_by": "Monee|Bank",
-      "is_idempotent": false,
-      "confidence_score": 0.95,
-      "security_profile": {
-        "auth_type": "Bearer|null",
-        "algorithm": "SHA256withRSA|null",
-        "signed_fields": ["field1", "field2"],
-        "signature_location": "header|body|null",
-        "token_source_api": "string|null"
-      },
-      "request": {
-        "example_json": "string|null",
-        "fields": [
-          {
-            "location": "header|body|query",
-            "name": "string",
-            "description": "string (English)",
-            "data_type": "String|Number|Object|Array|Boolean|Date|null",
-            "max_length": null,
-            "is_required": true,
-            "default_value": "string|null",
-            "constraints": "string|null",
-            "is_encrypted": false,
-            "is_deprecated": false,
-            "confidence_score": 0.95,
-            "enums": [],
-            "children": []
-          }
-        ]
-      },
-      "response": {
-        "example_json": "string|null",
-        "fields": []
-      },
-      "errors": [
+      "name": "string (e.g. OTP Verification Flow)",
+      "description": "string (English, 1-2 sentences)",
+      "steps": [
         {
-          "http_status": 200,
-          "result_status": "SENTOTP-FAILED|null",
-          "result_code": "2007|null",
-          "result_message": "string|null",
-          "condition": "string|null",
-          "confidence_score": 0.9
+          "order": 1,
+          "label": "string (English, concise action label)",
+          "actor_from": "string (e.g. Monee, Bank, Customer, System)",
+          "actor_to": "string",
+          "api_name": "string|null  (must match an api name in this flow's apis array)"
+        }
+      ],
+      "apis": [
+        {
+          "name": "string",
+          "description": "string (English)",
+          "method": "GET|POST|PUT|PATCH|DELETE|null",
+          "path": "string|null",
+          "exposed_by": "Monee|Bank",
+          "is_idempotent": false,
+          "confidence_score": 0.95,
+          "security_profile": {
+            "auth_type": "Bearer|null",
+            "algorithm": "SHA256withRSA|null",
+            "signed_fields": [],
+            "signature_location": "header|body|null",
+            "token_source_api": "string|null"
+          },
+          "request": {
+            "example_json": "string|null",
+            "fields": [
+              {
+                "name": "string",
+                "description": "string (English)",
+                "data_type": "String|Number|Object|Array|Boolean|Date|null",
+                "max_length": null,
+                "is_required": true,
+                "default_value": "string|null",
+                "constraints": "string|null",
+                "is_encrypted": false,
+                "is_deprecated": false,
+                "confidence_score": 0.95,
+                "enums": [],
+                "children": []
+              }
+            ]
+          },
+          "response": {
+            "example_json": "string|null",
+            "fields": []
+          },
+          "errors": [
+            {
+              "http_status": 200,
+              "result_status": "string|null",
+              "result_code": "string|null",
+              "result_message": "string|null",
+              "condition": "string|null",
+              "confidence_score": 0.9
+            }
+          ],
+          "edge_cases": [
+            {
+              "condition": "string|null",
+              "action": "retry|inquiry|next_step|fail|end_flow",
+              "retry_max": null,
+              "retry_interval_sec": null,
+              "next_api_name": "string|null",
+              "notes": "string|null"
+            }
+          ]
         }
       ]
     }
@@ -88,64 +117,16 @@ Return a JSON object with this exact structure:
 }
 
 Rules:
-- exposed_by: if the API path/description says "[Partner] exposes" or callback from bank → "Bank", otherwise "Monee"
-- is_encrypted: true if the field is marked as sensitive/encrypted/red field
-- is_deprecated: true if field has strikethrough markers (~~text~~) or is explicitly deprecated
+- Group APIs under the flow they belong to. If the document describes multiple flows, output multiple flow objects.
+- If there is no explicit flow structure, create one flow named after the document's main purpose.
+- exposed_by: "Bank" if the API is exposed/provided by the bank/partner, otherwise "Monee"
+- is_encrypted: true if the field is marked as sensitive/encrypted
+- is_deprecated: true if field has strikethrough (~~text~~) or is explicitly deprecated
 - For nested objects, put child fields in the "children" array of the parent field
 - Extract ALL result code rows from inline tables (resultStatus + resultCode + resultMessage)
 - signed_fields: ordered list of field names used to build the signature string
-
-Documentation section:
----
-{content}
----
-""").strip()
-
-_FLOW_EXTRACTION_PROMPT = textwrap.dedent("""
-Extract the API integration flow from this documentation.
-Return a JSON object:
-
-{
-  "flow": {
-    "name": "string",
-    "description": "string (English)",
-    "steps": [
-      {
-        "order": 1,
-        "label": "string (English, concise)",
-        "actor_from": "string (e.g. Monee, Bank, Customer)",
-        "actor_to": "string",
-        "api_name": "string|null"
-      }
-    ]
-  }
-}
-
-Documentation:
----
-{content}
----
-""").strip()
-
-_EDGE_CASE_PROMPT = textwrap.dedent("""
-Extract edge case handling logic from this documentation.
-Return a JSON object:
-
-{
-  "edge_cases": [
-    {
-      "api_name": "string",
-      "result_code": "string|null",
-      "result_status": "string|null",
-      "condition": "string (English)|null",
-      "action": "retry|inquiry|next_step|fail|end_flow",
-      "retry_max": null,
-      "retry_interval_sec": null,
-      "next_api_name": "string|null",
-      "notes": "string (English)|null"
-    }
-  ]
-}
+- api_name in steps must exactly match the name field of an api in the same flow's apis array
+- If an API appears in multiple flows, duplicate it in each flow
 
 Documentation:
 ---
@@ -179,31 +160,20 @@ def _call_llm(prompt: str) -> dict:
 
 # ─── Public extraction functions ──────────────────────────────
 
-def extract_apis(section_content: str) -> dict:
-    """Extract APIs + fields + errors from a Markdown section."""
-    prompt = _API_EXTRACTION_PROMPT.replace("{content}", section_content)
+def extract_all(markdown: str) -> dict:
+    """
+    Combined single-pass extraction: returns flows with APIs nested inside.
+    Output shape: { "flows": [ { name, description, steps, apis } ] }
+    On failure returns { "flows": [], "_error": "..." }
+    """
+    prompt = _EXTRACT_ALL_PROMPT.replace("{content}", markdown)
     try:
-        return _call_llm(prompt)
+        result = _call_llm(prompt)
+        if "flows" not in result:
+            result = {"flows": [], "_error": "LLM did not return a flows key"}
+        return result
     except Exception as e:
-        return {"apis": [], "_error": str(e)}
-
-
-def extract_flow(section_content: str) -> dict:
-    """Extract flow steps from a Markdown section."""
-    prompt = _FLOW_EXTRACTION_PROMPT.replace("{content}", section_content)
-    try:
-        return _call_llm(prompt)
-    except Exception as e:
-        return {"flow": None, "_error": str(e)}
-
-
-def extract_edge_cases(section_content: str) -> dict:
-    """Extract edge case handling logic."""
-    prompt = _EDGE_CASE_PROMPT.replace("{content}", section_content)
-    try:
-        return _call_llm(prompt)
-    except Exception as e:
-        return {"edge_cases": [], "_error": str(e)}
+        return {"flows": [], "_error": str(e)}
 
 
 def extract_document_metadata(full_markdown: str, filename: str) -> dict:
