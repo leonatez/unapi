@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+backend/.env
+
+# Node
+node_modules/
+.next/
+frontend/.env
+frontend/.env.local
+
+# Uploads
+/tmp/
+
+# OS
+.DS_Store
+*.swp
