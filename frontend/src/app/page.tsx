@@ -6,97 +6,119 @@ const features = [
     icon: FileSearch,
     title: "Parse",
     desc: "DOCX, XLSX (40+ sheets), Markdown, PDF — extracted with LLM intelligence",
-    color: "text-blue-400",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/20",
+    cardBg:    "#EBF4FF",
+    cardBorder: "#C3D9F8",
+    iconBg:    "#DBEAFE",
+    iconColor: "#2563EB",
+    titleColor:"#1E40AF",
   },
   {
     icon: Zap,
     title: "Normalize",
     desc: "Canonical schema — fields, errors, security profiles, edge cases",
-    color: "text-indigo-400",
-    bg: "bg-indigo-500/10",
-    border: "border-indigo-500/20",
+    cardBg:    "#F3F0FF",
+    cardBorder: "#DDD5F8",
+    iconBg:    "#EDE9FE",
+    iconColor: "#7C3AED",
+    titleColor:"#5B21B6",
   },
   {
     icon: Shield,
     title: "Diff",
-    desc: "Breaking 🚨 · Risky ⚠️ · Info ℹ️ diffs between internal and partner specs",
-    color: "text-teal-400",
-    bg: "bg-teal-500/10",
-    border: "border-teal-500/20",
-  },
-];
-
-const ctas = [
-  {
-    href: "/documents",
-    label: "Upload Document",
-    icon: Upload,
-    primary: true,
-  },
-  {
-    href: "/flows",
-    label: "View Flows",
-    icon: GitBranch,
-    primary: false,
-  },
-  {
-    href: "/compare",
-    label: "Compare Docs",
-    icon: GitCompare,
-    primary: false,
+    desc: "Breaking · Risky · Info diffs between internal and partner specs",
+    cardBg:    "#EDFAF0",
+    cardBorder: "#BBF0CB",
+    iconBg:    "#D1FAE5",
+    iconColor: "#059669",
+    titleColor:"#065F46",
   },
 ];
 
 export default function Home() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[85vh] px-6 text-center">
-      {/* Badge */}
-      <div className="mb-6 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium">
-        <Zap className="w-3 h-3" />
+    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-6 py-24 text-center">
+      {/* Eyebrow badge */}
+      <div className="animate-fade-up mb-8 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-[#E4E8E0] text-stone-600 text-[11px] font-medium tracking-wide shadow-sm">
+        <Zap className="w-3 h-3 text-indigo-500" strokeWidth={2.5} />
         API Contract Intelligence Platform
       </div>
 
-      {/* Hero */}
-      <h1 className="text-5xl sm:text-6xl font-bold text-white mb-4 tracking-tight">
+      {/* Hero heading */}
+      <h1
+        className="animate-fade-up text-[72px] sm:text-[88px] font-bold text-[#1A1A1A] mb-4 tracking-[-0.04em] leading-[1]"
+        style={{ animationDelay: "60ms" }}
+      >
         unapi
       </h1>
-      <p className="text-lg text-gray-400 mb-10 max-w-md leading-relaxed">
-        Upload API docs, normalize them into a canonical schema, compare internal vs partner versions, and visualize integration flows.
+      <p
+        className="animate-fade-up text-[16px] text-stone-500 mb-12 max-w-[380px] leading-relaxed"
+        style={{ animationDelay: "120ms" }}
+      >
+        Upload API docs, normalize them into a canonical schema, compare
+        internal vs partner versions, and visualize integration flows.
       </p>
 
       {/* CTAs */}
-      <div className="flex gap-3 flex-wrap justify-center mb-16">
-        {ctas.map(({ href, label, icon: Icon, primary }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${
-              primary
-                ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30"
-                : "border border-gray-700 hover:border-gray-500 text-gray-300 hover:text-white hover:bg-gray-800"
-            }`}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-            {primary && <ArrowRight className="w-3.5 h-3.5" />}
-          </Link>
-        ))}
+      <div
+        className="animate-fade-up flex gap-2.5 flex-wrap justify-center mb-20"
+        style={{ animationDelay: "180ms" }}
+      >
+        {/* Primary CTA — Button-in-Button pattern */}
+        <Link
+          href="/documents"
+          className="group flex items-center gap-2 pl-5 pr-2 py-2 rounded-full font-medium text-[13px] bg-indigo-600 hover:bg-indigo-700 text-white transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] shadow-sm shadow-indigo-200 active:scale-[0.98]"
+        >
+          <Upload className="w-3.5 h-3.5 shrink-0" />
+          Upload Document
+          <span className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center ml-0.5 group-hover:translate-x-0.5 group-hover:-translate-y-px transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]">
+            <ArrowRight className="w-3 h-3" />
+          </span>
+        </Link>
+
+        <Link
+          href="/flows"
+          className="flex items-center gap-2 px-5 py-2 rounded-full font-medium text-[13px] bg-white border border-[#E4E8E0] text-stone-700 hover:border-stone-300 hover:bg-stone-50 transition-all duration-300 shadow-sm active:scale-[0.98]"
+        >
+          <GitBranch className="w-3.5 h-3.5 text-stone-400" />
+          View Flows
+        </Link>
+
+        <Link
+          href="/compare"
+          className="flex items-center gap-2 px-5 py-2 rounded-full font-medium text-[13px] bg-white border border-[#E4E8E0] text-stone-700 hover:border-stone-300 hover:bg-stone-50 transition-all duration-300 shadow-sm active:scale-[0.98]"
+        >
+          <GitCompare className="w-3.5 h-3.5 text-stone-400" />
+          Compare Docs
+        </Link>
       </div>
 
-      {/* Feature cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl w-full text-left">
-        {features.map(({ icon: Icon, title, desc, color, bg, border }) => (
+      {/* Feature cards — Double-Bezel bento */}
+      <div
+        className="animate-fade-up grid grid-cols-1 md:grid-cols-3 gap-3.5 max-w-[680px] w-full text-left stagger-children"
+        style={{ animationDelay: "240ms" }}
+      >
+        {features.map(({ icon: Icon, title, desc, cardBg, cardBorder, iconBg, iconColor, titleColor }) => (
           <div
             key={title}
-            className={`p-5 rounded-xl border ${border} ${bg} group hover:scale-[1.02] transition-transform`}
+            className="p-[5px] rounded-[1.5rem] border"
+            style={{ background: cardBg, borderColor: cardBorder }}
           >
-            <div className={`${bg} ${border} border rounded-lg w-9 h-9 flex items-center justify-center mb-3`}>
-              <Icon className={`w-4.5 h-4.5 ${color}`} />
+            {/* Inner core */}
+            <div className="bg-white/75 rounded-[calc(1.5rem-5px)] p-5 h-full flex flex-col gap-3">
+              {/* Icon in nested circle */}
+              <div
+                className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                style={{ background: iconBg }}
+              >
+                <Icon className="w-[17px] h-[17px]" style={{ color: iconColor }} strokeWidth={1.75} />
+              </div>
+              <div>
+                <div className="text-[13px] font-semibold mb-1" style={{ color: titleColor }}>
+                  {title}
+                </div>
+                <div className="text-[12px] text-stone-500 leading-relaxed">{desc}</div>
+              </div>
             </div>
-            <div className={`font-semibold mb-1 ${color}`}>{title}</div>
-            <div className="text-sm text-gray-400 leading-relaxed">{desc}</div>
           </div>
         ))}
       </div>
