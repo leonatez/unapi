@@ -16,7 +16,7 @@ export default function MermaidDiagram({ chart, onStepClick }: Props) {
     import("mermaid").then((mod) => {
       if (cancelled) return;
       const mermaid = mod.default;
-      mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+      mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "loose" });
       const id = `mermaid-${Math.random().toString(36).slice(2)}`;
       mermaid.render(id, chart).then(({ svg }) => {
         if (cancelled || !ref.current) return;
