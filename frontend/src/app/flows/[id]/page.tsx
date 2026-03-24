@@ -15,7 +15,7 @@ function Inp({ value, onChange, placeholder = "", className = "" }: {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-500 transition-colors ${className}`}
+      className={`bg-white border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:border-indigo-400 transition-colors ${className}`}
     />
   );
 }
@@ -89,18 +89,18 @@ export default function FlowDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex h-[calc(100vh-56px)] items-center justify-center text-gray-500">
+      <div className="flex h-[calc(100vh-56px)] items-center justify-center text-stone-400">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         <span className="text-sm">Loading…</span>
       </div>
     );
   }
-  if (!flow) return <div className="p-10 text-red-400">Flow not found</div>;
+  if (!flow) return <div className="p-10 text-red-500">Flow not found</div>;
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
       {/* Header */}
-      <div className="border-b border-gray-800 bg-gray-900/50 px-6 py-3.5 flex items-center gap-4 shrink-0">
+      <div className="border-b border-stone-200 bg-white px-6 py-3.5 flex items-center gap-4 shrink-0">
         {editingFlowName ? (
           <div className="flex items-center gap-2 flex-1 flex-wrap">
             <Inp value={flowNameDraft} onChange={setFlowNameDraft} placeholder="Flow name" className="w-64" />
@@ -115,7 +115,7 @@ export default function FlowDetailPage() {
             </button>
             <button
               onClick={() => setEditingFlowName(false)}
-              className="px-3 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-medium"
+              className="px-3 py-1.5 text-xs rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium"
             >
               Cancel
             </button>
@@ -123,12 +123,12 @@ export default function FlowDetailPage() {
         ) : (
           <>
             <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold text-white truncate">{flow.name}</h1>
-              {flow.description && <p className="text-sm text-gray-500 truncate">{flow.description}</p>}
+              <h1 className="text-lg font-bold text-[#1A1A1A] truncate">{flow.name}</h1>
+              {flow.description && <p className="text-sm text-stone-500 truncate">{flow.description}</p>}
             </div>
             <button
               onClick={() => { setFlowNameDraft(flow.name); setFlowDescDraft(flow.description ?? ""); setEditingFlowName(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-white hover:bg-gray-800 shrink-0 transition-colors font-medium"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-stone-300 text-stone-500 hover:border-stone-400 hover:text-stone-700 hover:bg-stone-100 shrink-0 transition-colors font-medium"
             >
               <Pencil className="w-3 h-3" /> Edit
             </button>
@@ -138,25 +138,25 @@ export default function FlowDetailPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Diagram + step list */}
-        <div className="flex flex-col w-[55%] border-r border-gray-800 overflow-y-auto">
+        <div className="flex flex-col w-[55%] border-r border-stone-200 overflow-y-auto">
           {/* Diagram */}
-          <div className="p-4 border-b border-gray-800 shrink-0">
+          <div className="p-4 border-b border-stone-200 shrink-0">
             {mermaid ? (
               <MermaidDiagram chart={mermaid} onStepClick={handleMermaidClick} />
             ) : (
-              <p className="text-gray-700 text-sm py-4 text-center">No diagram</p>
+              <p className="text-stone-400 text-sm py-4 text-center">No diagram</p>
             )}
           </div>
 
           {/* Step list */}
           <div className="p-4 flex-1">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-xs text-gray-500 uppercase tracking-wider font-medium">
-                Steps <span className="text-gray-700">({sortedSteps.length})</span>
+              <div className="text-xs text-stone-400 uppercase tracking-wider font-medium">
+                Steps <span className="text-stone-300">({sortedSteps.length})</span>
               </div>
               <button
                 onClick={() => setAddingStep(true)}
-                className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-600 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" /> Add step
               </button>
@@ -186,26 +186,26 @@ export default function FlowDetailPage() {
         </div>
 
         {/* Right: API spec or step info */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-[#F0F2EE]">
           {!selectedStep ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-700 gap-2">
-              <ArrowRight className="w-8 h-8 opacity-20" />
-              <span className="text-sm">Select a step to inspect</span>
+            <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-2">
+              <ArrowRight className="w-8 h-8 opacity-40" />
+              <span className="text-sm text-stone-400">Select a step to inspect</span>
             </div>
           ) : loadingApi ? (
-            <div className="flex items-center justify-center h-full text-gray-500 text-sm gap-2">
+            <div className="flex items-center justify-center h-full text-stone-400 text-sm gap-2">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading API…
             </div>
           ) : selectedApi ? (
-            <div>
-              <div className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-gray-800">
+            <div className="bg-white min-h-full">
+              <div className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-stone-200">
                 <div>
-                  <div className="text-xs text-gray-500 mb-0.5">Step {selectedStep.step_order} · API</div>
-                  <div className="font-semibold text-white">{selectedApi.name}</div>
+                  <div className="text-xs text-stone-400 mb-0.5">Step {selectedStep.step_order} · API</div>
+                  <div className="font-semibold text-[#1A1A1A]">{selectedApi.name}</div>
                 </div>
                 <button
                   onClick={() => { setSelectedStep(null); setSelectedApi(null); }}
-                  className="text-gray-500 hover:text-white p-1 rounded-md hover:bg-gray-800 transition-colors"
+                  className="text-stone-400 hover:text-stone-700 p-1 rounded-md hover:bg-stone-100 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -213,27 +213,27 @@ export default function FlowDetailPage() {
               <ApiSpecPanel api={selectedApi} />
             </div>
           ) : (
-            <div className="p-6">
+            <div className="p-6 bg-white min-h-full">
               <div className="flex items-center justify-between mb-5">
-                <div className="text-xs text-gray-500 uppercase tracking-wider font-medium">
+                <div className="text-xs text-stone-400 uppercase tracking-wider font-medium">
                   Step {selectedStep.step_order}
                 </div>
                 <button
                   onClick={() => setSelectedStep(null)}
-                  className="text-gray-500 hover:text-white p-1 rounded-md hover:bg-gray-800 transition-colors"
+                  className="text-stone-400 hover:text-stone-700 p-1 rounded-md hover:bg-stone-100 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="text-white font-semibold text-lg mb-2">{selectedStep.label}</div>
+              <div className="text-[#1A1A1A] font-semibold text-lg mb-2">{selectedStep.label}</div>
               {(selectedStep.actor_from || selectedStep.actor_to) && (
-                <div className="flex items-center gap-2 text-sm text-gray-400 mb-5">
+                <div className="flex items-center gap-2 text-sm text-stone-500 mb-5">
                   <span>{selectedStep.actor_from}</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-gray-600" />
+                  <ArrowRight className="w-3.5 h-3.5 text-stone-400" />
                   <span>{selectedStep.actor_to}</span>
                 </div>
               )}
-              <div className="flex items-center gap-2 text-xs text-gray-600 bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-stone-500 bg-stone-50 border border-stone-200 rounded-xl px-4 py-3">
                 <Link2Off className="w-3.5 h-3.5 shrink-0" />
                 No API linked to this step. Edit the step to link one.
               </div>
@@ -284,27 +284,40 @@ function StepRow({ step, flowId, isSelected, onSelect, onChanged }: {
 
   const set = (k: string) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  function Inp2({ value, onChange, placeholder = "", className = "" }: {
+    value: string; onChange: (v: string) => void; placeholder?: string; className?: string;
+  }) {
+    return (
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`bg-white border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:border-indigo-400 transition-colors ${className}`}
+      />
+    );
+  }
+
   if (editing) {
     return (
-      <div className="p-3 rounded-xl border border-indigo-700 bg-gray-900 space-y-2">
+      <div className="p-3 rounded-xl border border-indigo-300 bg-indigo-50/50 space-y-2">
         <div className="flex gap-2 flex-wrap">
           <div>
-            <div className="text-xs text-gray-500 mb-1">#</div>
-            <Inp value={form.step_order} onChange={set("step_order")} className="w-12" />
+            <div className="text-xs text-stone-400 mb-1">#</div>
+            <Inp2 value={form.step_order} onChange={set("step_order")} className="w-12" />
           </div>
           <div className="flex-1 min-w-40">
-            <div className="text-xs text-gray-500 mb-1">Label</div>
-            <Inp value={form.label} onChange={set("label")} className="w-full" placeholder="Step label" />
+            <div className="text-xs text-stone-400 mb-1">Label</div>
+            <Inp2 value={form.label} onChange={set("label")} className="w-full" placeholder="Step label" />
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           <div className="flex-1">
-            <div className="text-xs text-gray-500 mb-1">From</div>
-            <Inp value={form.actor_from} onChange={set("actor_from")} className="w-full" placeholder="e.g. Monee" />
+            <div className="text-xs text-stone-400 mb-1">From</div>
+            <Inp2 value={form.actor_from} onChange={set("actor_from")} className="w-full" placeholder="e.g. Monee" />
           </div>
           <div className="flex-1">
-            <div className="text-xs text-gray-500 mb-1">To</div>
-            <Inp value={form.actor_to} onChange={set("actor_to")} className="w-full" placeholder="e.g. Bank" />
+            <div className="text-xs text-stone-400 mb-1">To</div>
+            <Inp2 value={form.actor_to} onChange={set("actor_to")} className="w-full" placeholder="e.g. Bank" />
           </div>
         </div>
         <div className="flex gap-2">
@@ -318,7 +331,7 @@ function StepRow({ step, flowId, isSelected, onSelect, onChanged }: {
           </button>
           <button
             onClick={() => setEditing(false)}
-            className="px-2.5 py-1 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-medium"
+            className="px-2.5 py-1 text-xs rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium"
           >
             Cancel
           </button>
@@ -330,17 +343,17 @@ function StepRow({ step, flowId, isSelected, onSelect, onChanged }: {
   return (
     <div className={`rounded-xl border transition-all flex items-start gap-3 ${
       isSelected
-        ? "bg-indigo-950/50 border-indigo-700"
-        : "bg-gray-900 border-gray-800 hover:border-gray-700"
+        ? "bg-indigo-50 border-indigo-300"
+        : "bg-white border-stone-200 hover:border-stone-300"
     }`}>
       <button onClick={onSelect} className="flex-1 flex items-start gap-3 px-3 py-2.5 min-w-0 text-left">
-        <span className="text-gray-600 font-mono text-xs mt-0.5 shrink-0 w-5 text-right">{step.step_order}.</span>
+        <span className="text-stone-400 font-mono text-xs mt-0.5 shrink-0 w-5 text-right">{step.step_order}.</span>
         <div className="flex-1 min-w-0">
-          <div className={`font-medium text-sm truncate ${isSelected ? "text-white" : "text-gray-300"}`}>
+          <div className={`font-medium text-sm truncate ${isSelected ? "text-stone-900" : "text-stone-600"}`}>
             {step.label}
           </div>
           {(step.actor_from || step.actor_to) && (
-            <div className="flex items-center gap-1 text-xs text-gray-600 mt-0.5">
+            <div className="flex items-center gap-1 text-xs text-stone-400 mt-0.5">
               <span>{step.actor_from}</span>
               <ArrowRight className="w-3 h-3" />
               <span>{step.actor_to}</span>
@@ -348,22 +361,22 @@ function StepRow({ step, flowId, isSelected, onSelect, onChanged }: {
           )}
         </div>
         {step.api_id
-          ? <Link2 className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" title="API linked" />
-          : <Link2Off className="w-3.5 h-3.5 text-gray-700 shrink-0 mt-0.5" title="No API" />
+          ? <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" title="API linked" />
+          : <Link2Off className="w-3.5 h-3.5 text-stone-300 shrink-0 mt-0.5" title="No API" />
         }
       </button>
       <div className="shrink-0 flex gap-0.5 pr-2 pt-2.5">
         <button
           onClick={() => setEditing(true)}
           title="Edit"
-          className="p-1 rounded text-gray-600 hover:text-white hover:bg-gray-800 transition-colors"
+          className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
         >
           <Pencil className="w-3 h-3" />
         </button>
         <button
           onClick={del}
           title="Delete"
-          className="p-1 rounded text-gray-700 hover:text-red-400 hover:bg-gray-800 transition-colors"
+          className="p-1 rounded text-stone-300 hover:text-red-500 hover:bg-stone-100 transition-colors"
         >
           <X className="w-3 h-3" />
         </button>
@@ -396,12 +409,25 @@ function AddStepRow({ flowId, nextOrder, onSaved, onCancel }: {
 
   const set = (k: string) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  function Inp2({ value, onChange, placeholder = "", className = "" }: {
+    value: string; onChange: (v: string) => void; placeholder?: string; className?: string;
+  }) {
+    return (
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`bg-white border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:border-indigo-400 transition-colors ${className}`}
+      />
+    );
+  }
+
   return (
-    <div className="p-3 rounded-xl border border-indigo-700 bg-indigo-950/20 space-y-2">
+    <div className="p-3 rounded-xl border border-indigo-300 bg-indigo-50/50 space-y-2">
       <div className="flex gap-2 flex-wrap">
-        <Inp value={form.label} onChange={set("label")} placeholder="Label *" className="flex-1 min-w-40" />
-        <Inp value={form.actor_from} onChange={set("actor_from")} placeholder="From" className="w-28" />
-        <Inp value={form.actor_to} onChange={set("actor_to")} placeholder="To" className="w-28" />
+        <Inp2 value={form.label} onChange={set("label")} placeholder="Label *" className="flex-1 min-w-40" />
+        <Inp2 value={form.actor_from} onChange={set("actor_from")} placeholder="From" className="w-28" />
+        <Inp2 value={form.actor_to} onChange={set("actor_to")} placeholder="To" className="w-28" />
       </div>
       <div className="flex gap-2">
         <button
@@ -414,7 +440,7 @@ function AddStepRow({ flowId, nextOrder, onSaved, onCancel }: {
         </button>
         <button
           onClick={onCancel}
-          className="px-2.5 py-1 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-medium"
+          className="px-2.5 py-1 text-xs rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium"
         >
           Cancel
         </button>
