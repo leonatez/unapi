@@ -114,6 +114,7 @@ class ApiFieldCreate(BaseModel):
     is_required: bool = False
     default_value: Optional[str] = None
     constraints: Optional[str] = None        # regex, rules, etc.
+    value_logic: Optional[str] = None        # sample value, fixed value, or conditional logic
     is_encrypted: bool = False
     is_deprecated: bool = False
     confidence_score: float = 1.0

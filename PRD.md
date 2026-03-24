@@ -108,27 +108,75 @@ A system that:
 * PDF
 * DOCX (Word)
 * XLSX / Excel (local files, multi-sheet)
-* Google Docs
-* Google Sheets
 * Markdown
 
-### Pipeline
+### Ingestion Paths
 
-1. Upload document
-2. Convert to Markdown (using library `markitdown`)
-3. **Sheet classification** (for XLSX/multi-tab docs): classify each sheet/section as:
-   - `api_spec` — contains an API definition
-   - `error_code` — reference error/result code table
-   - `edge_case` — runtime handling logic
-   - `mapping` — code/value mapping table
-   - `metadata` — changelog, environment, general info
-4. LLM extracts structured data per classified section
-5. Store into canonical DB
+Two paths exist depending on file type:
+
+#### XLSX Path — 4-step pipeline with hybrid text + image extraction
+
+Gemini does not support XLSX as a native file input (MIME type rejected). Instead, XLSX files are processed via a hybrid approach: tabular data is converted to text, and embedded images are extracted and uploaded separately. Both are sent together in a single Gemini `generate_content` call.
+
+**Step 1 — Upload**
+User uploads the XLSX file. The backend saves it to disk and reads sheet metadata using `openpyxl` (read-only). Returns sheet names and up to 6 preview rows per sheet. No AI involved — sub-second.
+
+**Step 2 — Sheet Selection**
+User chooses which sheets to include. UI provides:
+- Checkbox per sheet with pre-selection based on auto-detected kind
+- Editable kind badge (click to change inline): **Flow · API Spec · Error Codes · Edge Cases · Mapping · Metadata**
+- Live preview panel showing the sheet's first 5 data rows when clicked
+
+Kind auto-detection runs entirely client-side (no AI) using regex on sheet name + preview content:
+
+| Kind | Detection rule |
+|---|---|
+| **Flow** | Sheet **name** matches `flow\|sequence\|diagram\|workflow` (name takes priority) |
+| API Spec | Preview cells contain `url\|method\|request\|response\|endpoint\|path` |
+| Error Codes | Preview cells contain `error.?code\|result.?code\|result.?status` |
+| Edge Cases | Preview cells contain `edge.?case\|retry\|inquiry\|handling.?logic` |
+| Mapping | Preview cells contain `mapping\|lookup\|province.?code` |
+| Metadata | Changelog/revision keywords, or catch-all |
+
+Flow names are normalized (trim + collapse multiple spaces; case-insensitive deduplication).
+
+All resolved kinds — including user corrections — are sent to Gemini as prompt context. Pre-selection: Flow, API Spec, Error Codes, Edge Cases checked by default; Metadata and Mapping unchecked.
+
+**Step 3 — Flow Sequencer** *(optional)*
+User defines the exact API call order per flow. This step can be skipped — if skipped, Gemini infers sequence from diagrams.
+
+- Flow tabs auto-populate from sheets labeled "Flow". Custom flow names can be added inline.
+- Left panel: API Spec sheets — click to append to the active flow's sequence.
+- Right panel: ordered step list with editable step label, up/down reorder, and remove buttons.
+- The same API sheet can be added multiple times (e.g. a callback called at multiple stages).
+
+When provided, the sequence is included in the Gemini prompt as structured hints:
+```
+Flow sequence hints:
+  Flow "OTP Verification Flow":
+    Step 1: "OTP Initiation API" sheet — Initiate OTP Request
+    Step 2: "OTP API" sheet — Resend OTP (optional)
+    Step 3: "OTP Verification API" sheet — Verify OTP Code
+    Step 4: "Callback API" sheet — Send Success Notification
+```
+
+**Step 4 — Extraction Review**
+Gemini receives the selected sheets as markdown tables (text) plus any embedded images (PNG/JPEG) extracted from those sheets via `openpyxl` and uploaded to the Gemini File API individually. Sheet kind labels and flow sequence hints (from steps 2–3) are injected as structured prompt context. The extracted flows and APIs are displayed for user review. User can approve or go back.
+
+Gemini response normalization: the model may return either `{"flows": [...]}` or a bare `[...]` list — both are handled and normalized to the canonical shape before persisting.
+
+#### Non-XLSX Path — 3-step pipeline with markitdown
+
+For DOCX, PDF, and Markdown files:
+
+1. Upload → `markitdown` converts file to Markdown text
+2. Markdown Review → user can edit the Markdown before extraction (fix tables, remove noise)
+3. Extraction Review → same review step as XLSX
 
 ### Requirements
 
-* Preserve raw + intermediate (Markdown) formats
-* Support re-processing
+* Preserve the raw file on disk for Gemini File API re-use
+* Store markdown content when available (non-XLSX or as a fallback)
 * **Confidence scoring** (soft flag) for parsed fields — low-confidence fields are flagged but do not block processing
 * Extract content regardless of language — normalize all descriptions to **English** in the canonical model
 * Handle merged cells and nested inline tables in DOCX/XLSX
@@ -155,6 +203,7 @@ Each API must support:
 * Required flags
 * Default values
 * Constraints (regex, min/max, rules)
+* **`value_logic`**: string — sample value (e.g. `VCB001`), fixed/constant value (e.g. `Fixed: PAYMENT`), or conditional logic (e.g. `If type=A then X; if type=B then Y`) as shown in the source document
 * **`is_encrypted`**: bool — field-level encryption flag (e.g., "red fields" in partner docs)
 * **`is_deprecated`**: bool — field is deprecated (strikethrough in source doc)
 
@@ -394,7 +443,7 @@ This ensures that breaking-change detection is never a false positive caused by 
 * `api_document` — source doc with metadata (partner name, flow name, version, date, revision history, `owner`: `"Monee"` | `"Bank"`)
 * `api` — canonical API definition (includes `exposed_by`)
 * `api_message` — request/response container
-* `api_field` — individual field (includes `is_encrypted`, `is_deprecated`, `confidence_score`)
+* `api_field` — individual field (includes `value_logic`, `is_encrypted`, `is_deprecated`, `confidence_score`)
 * `api_field_enum` — enum values
 * `api_error` — error entry with resultStatus + resultCode + resultMessage triplet
 * `security_profile` — auth + signature details
@@ -461,27 +510,41 @@ This ensures that breaking-change detection is never a false positive caused by 
 
 ## Backend
 
-* FastAPI
-* Supabase (PostgreSQL)
-* Optional: JSONB for schema storage
+* FastAPI (Python 3.11+)
+* Supabase (PostgreSQL via `supabase-py`)
+* JSONB columns for `extraction_draft`, `sheet_kinds`, `flow_sequence`
 
 ## Parsing Layer
 
-* Markdown conversion using library `markitdown`
-* Sheet/section classifier (rule-based + LLM-assisted)
-* LLM extraction: `gemini-2.0-flash` / local LLM
+* **XLSX:** `openpyxl` (read-only sheet listing + preview) → selected sheets converted to markdown tables + embedded images extracted and uploaded to Gemini File API → single `generate_content` call with text + images + hints
+* **Non-XLSX:** `markitdown` → Markdown text → Gemini text prompt
+* Sheet classifier: client-side regex (instant, no AI cost) with user override
+* LLM extraction: Google Gemini via `google-generativeai` SDK (model configurable, default `gemini-2.0-flash`)
+* Gemini File URI storage: full URI stored in DB (`https://generativelanguage.googleapis.com/v1beta/files/<id>`); name portion is extracted at call time since `genai.get_file()` accepts only the name
 * Language: extract in any language, normalize to English
+* Prompt design: structured sheet context block + optional flow sequence hints injected before the schema extraction request
+* Response normalization: bare JSON array from model is wrapped into `{"flows": [...]}` before processing
 
 ## Frontend
 
-* React / Next.js
-* Mermaid.js for diagrams
-* TailwindCSS
+* Next.js (App Router), TypeScript
+* Tailwind CSS
+* Lucide React icons
 
 ## LLM Layer
 
-* Structured query engine
-* RAG over DB
+* Structured query engine (planned)
+* RAG over DB (planned)
+
+## Key Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `SUPABASE_URL` / `SUPABASE_KEY` | Supabase project credentials |
+| `GEMINI_API_KEY` | Google AI API key |
+| `GEMINI_MODEL` | Gemini model name (default: `gemini-2.0-flash`) |
+| `UPLOAD_DIR` | Local file storage path (default: `/tmp/unapi_uploads`) |
+| `NEXT_PUBLIC_API_URL` | Backend API base URL (baked into Next.js at Docker build time) |
 
 ---
 
@@ -508,26 +571,71 @@ This ensures that breaking-change detection is never a false positive caused by 
 
 ---
 
+# 8b. 🗄️ DB Migrations
+
+Applied to Supabase in order:
+
+| Migration | Description |
+|---|---|
+| `001_initial_schema.sql` | Core tables: `api_document`, `flow`, `api`, `api_message`, `api_field`, `api_error`, `edge_case` |
+| `002_data_model_refactor.sql` | `flow_step`, `security_profile`, `api_field_enum`, `diff_result`; `extraction_draft jsonb`, `sheet_kinds jsonb`, `flow_sequence jsonb`; `api.flow_id` FK replacing `document_id`; cascade deletes |
+| `003_gemini_file_api.sql` | `gemini_file_uri text`, `selected_sheets text[]` on `api_document`; new pipeline statuses `pending_sheet_selection` and `file_ready` |
+| `004_value_logic.sql` | `value_logic text` on `api_field` — sample value, fixed constant, or conditional logic string extracted from source doc |
+
+**`pipeline_status` value lifecycle:**
+```
+XLSX:     pending_sheet_selection → file_ready → extracting → extraction_review → complete
+Non-XLSX: markdown_ready          →             extracting → extraction_review → complete
+```
+
+---
+
 # 9. ⚠️ Risks & Mitigations
 
 | Risk                              | Mitigation                                        |
 | --------------------------------- | ------------------------------------------------- |
-| LLM parsing errors                | Confidence scoring (soft flag), human can review  |
-| Complex XLSX (merged cells, 40+ sheets) | Sheet classifier + incremental extraction   |
+| LLM parsing errors                | Confidence scoring (soft flag), HITL review pipeline |
+| Token cost for large XLSX files   | Sheet Selection step — user chooses only relevant sheets before file is sent to Gemini |
+| Images and diagrams lost in parsing | XLSX embedded images extracted via `openpyxl` and uploaded to Gemini File API as individual image files; tabular data sent as markdown text in the same call |
+| AI misses flow step order         | Flow Sequencer step (optional) — user defines call order; sent as structured prompt hints |
+| Complex XLSX (merged cells, 40+ sheets) | Sheet classifier (instant, client-side) + user-editable kind labels |
 | Multilingual docs (e.g. Vietnamese) | LLM normalizes to English in canonical model    |
 | Inline nested tables in DOCX      | Special extraction pass for status mapping tables |
 | Schema mismatch                   | Validation rules on canonical model              |
-| Over-engineering                  | MVP-first approach                               |
+| Gemini File API file expiry       | Raw file kept on disk; can be re-uploaded if URI expires |
 
 ---
 
 # 10. 🚀 CI/CD & Deployment
 
-This project is hosted on a mini PC's Caprover. Every push to GitHub auto-deploys via Caprover.
+This project is hosted on a mini PC running CapRover. Every push to GitHub auto-deploys via CapRover webhooks.
 
-* Backend: FastAPI Docker container
-* Frontend: Next.js Docker container
-* DB: Supabase (external managed)
+| Service | Domain | Container Port | CapRover App |
+|---|---|---|---|
+| Backend (FastAPI) | `unapi-api.crawlingrobo.com` | 1113 | `unapi-api` |
+| Frontend (Next.js) | `unapi.crawlingrobo.com` | 1114 | `unapi` |
+
+* **Backend**: FastAPI Docker container (`backend/Dockerfile`), deployed from `backend/` directory using `backend/captain-definition`
+* **Frontend**: Next.js standalone Docker container (`frontend/Dockerfile`), deployed from `frontend/` directory; `NEXT_PUBLIC_API_URL` is baked in at Docker build time via `ARG`
+* **DB**: Supabase (external managed PostgreSQL)
+
+### Deploy commands
+```bash
+# Backend
+cd backend/ && caprover deploy --appName unapi-api
+
+# Frontend
+cd frontend/ && caprover deploy --appName unapi
+```
+
+### Backend environment variables (set in CapRover dashboard)
+```
+SUPABASE_URL=...
+SUPABASE_KEY=...
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.0-flash
+UPLOAD_DIR=/tmp/unapi_uploads
+```
 
 ---
 

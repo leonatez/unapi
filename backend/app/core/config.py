@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # Gemini
     gemini_api_key: str
-    gemini_model: str = "gemini-2.0-flash-lite"
+    gemini_model: str = "gemini-3-flash-preview"
 
     # Upload
     upload_dir: str = "/tmp/unapi_uploads"

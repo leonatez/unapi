@@ -1,7 +1,13 @@
-from fastapi import APIRouter, HTTPException
+import logging
+import traceback
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 from app.core.database import get_db
+from app.services.parser.llm_extractor import reextract_api
+from app.services.parser.pipeline import _persist_fields, _persist_edge_case
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -89,6 +95,7 @@ class CreateFieldBody(BaseModel):
     is_required: bool = False
     default_value: Optional[str] = None
     constraints: Optional[str] = None
+    value_logic: Optional[str] = None
     is_encrypted: bool = False
     is_deprecated: bool = False
     parent_field_id: Optional[str] = None
@@ -102,6 +109,7 @@ class UpdateFieldBody(BaseModel):
     is_required: Optional[bool] = None
     default_value: Optional[str] = None
     constraints: Optional[str] = None
+    value_logic: Optional[str] = None
     is_encrypted: Optional[bool] = None
     is_deprecated: Optional[bool] = None
     confidence_score: Optional[float] = None
@@ -188,3 +196,137 @@ def update_error(api_id: str, error_id: str, body: UpsertErrorBody):
 def delete_error(api_id: str, error_id: str):
     db = get_db()
     db.table("api_error").delete().eq("id", error_id).execute()
+
+
+# ─── AI Re-extraction ──────────────────────────────────────────
+
+@router.post("/{api_id}/reextract")
+async def reextract_api_endpoint(
+    api_id: str,
+    files: list[UploadFile] = File(...),
+):
+    """
+    Re-extract a single API's spec from uploaded screenshots (.png/.jpg/.webp)
+    and/or markdown files (.md/.txt).
+
+    Replaces all request/response fields, errors, and edge cases for this API.
+    Returns the updated ApiDef.
+    """
+    db = get_db()
+
+    # Fetch existing API for context
+    api_row = (
+        db.table("api")
+        .select("id, name, method, path, exposed_by, flow_id")
+        .eq("id", api_id)
+        .single()
+        .execute()
+    )
+    if not api_row.data:
+        raise HTTPException(404, "API not found")
+    api_data = api_row.data
+
+    # Read uploaded files
+    file_inputs: list[tuple[bytes, str]] = []
+    for f in files:
+        content = await f.read()
+        mime = f.content_type or "application/octet-stream"
+        # Normalise markdown mime types
+        if f.filename and f.filename.endswith((".md", ".markdown")):
+            mime = "text/markdown"
+        elif f.filename and f.filename.endswith(".txt"):
+            mime = "text/plain"
+        file_inputs.append((content, mime))
+
+    if not file_inputs:
+        raise HTTPException(400, "No files provided")
+
+    # Run AI extraction
+    try:
+        result = reextract_api(
+            api_name=api_data["name"],
+            method=api_data.get("method"),
+            path=api_data.get("path"),
+            exposed_by=api_data.get("exposed_by", "Monee"),
+            files=file_inputs,
+        )
+    except Exception as e:
+        logger.error("reextract failed api=%s\n%s", api_id, traceback.format_exc())
+        raise HTTPException(500, f"AI extraction failed: {e}")
+
+    if result.get("_error"):
+        raise HTTPException(500, f"AI extraction failed: {result['_error']}")
+
+    # Replace request/response messages + fields
+    existing_msgs = (
+        db.table("api_message")
+        .select("id, message_type")
+        .eq("api_id", api_id)
+        .execute()
+        .data
+    )
+    msg_id_map: dict[str, str] = {}
+    for msg in existing_msgs:
+        msg_id_map[msg["message_type"]] = msg["id"]
+        # Delete all existing fields for this message
+        db.table("api_field").delete().eq("message_id", msg["id"]).execute()
+
+    for msg_type in ("request", "response"):
+        msg_data = result.get(msg_type, {})
+        if not msg_data:
+            continue
+        fields = msg_data.get("fields", [])
+        example = msg_data.get("example_json")
+
+        if msg_type in msg_id_map:
+            msg_id = msg_id_map[msg_type]
+            if example is not None:
+                db.table("api_message").update({"example_json": example}).eq("id", msg_id).execute()
+        else:
+            msg_row = db.table("api_message").insert({
+                "api_id": api_id,
+                "message_type": msg_type,
+                "example_json": example,
+            }).execute()
+            msg_id = msg_row.data[0]["id"]
+
+        _persist_fields(db, msg_id, fields)
+
+    # Replace errors
+    db.table("api_error").delete().eq("api_id", api_id).execute()
+    for err in result.get("errors", []):
+        db.table("api_error").insert({
+            "api_id": api_id,
+            "http_status": err.get("http_status"),
+            "result_status": err.get("result_status"),
+            "result_code": str(err["result_code"]) if err.get("result_code") is not None else None,
+            "result_message": err.get("result_message"),
+            "condition": err.get("condition"),
+            "confidence_score": err.get("confidence_score", 1.0),
+        }).execute()
+
+    # Replace edge cases
+    db.table("edge_case").delete().eq("api_id", api_id).execute()
+    for ec in result.get("edge_cases", []):
+        _persist_edge_case(db, api_id, ec)
+
+    # Update description/method/path/confidence if AI returned them
+    patch = {}
+    if result.get("description"):
+        patch["description"] = result["description"]
+    if result.get("method"):
+        patch["method"] = result["method"]
+    if result.get("path"):
+        patch["path"] = result["path"]
+    patch["confidence_score"] = 1.0
+    db.table("api").update(patch).eq("id", api_id).execute()
+
+    # Return full updated API
+    updated = (
+        db.table("api")
+        .select("*, security_profile(*), api_message(*, api_field(*, api_field_enum(*)))")
+        .eq("id", api_id)
+        .single()
+        .execute()
+    )
+    return updated.data

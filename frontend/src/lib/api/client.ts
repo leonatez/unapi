@@ -24,6 +24,20 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ markdown }),
     }),
+  selectSheets: (
+    id: string,
+    selectedSheets: string[],
+    sheetKinds: Record<string, string>,
+    flowSequence?: Record<string, { sheet_name: string; label: string }[]>,
+  ) =>
+    req<{ status: string; gemini_file_uri: string }>(`/documents/${id}/select-sheets`, {
+      method: "POST",
+      body: JSON.stringify({
+        selected_sheets: selectedSheets,
+        sheet_kinds: sheetKinds,
+        flow_sequence: flowSequence ?? {},
+      }),
+    }),
   extractDocument: (id: string) =>
     req<{ status: string; draft: ExtractionDraft }>(`/documents/${id}/extract`, { method: "POST" }),
   getExtractionDraft: (id: string) =>
@@ -66,6 +80,16 @@ export const api = {
   deleteError: (apiId: string, errorId: string) =>
     req<void>(`/apis/${apiId}/errors/${errorId}`, { method: "DELETE" }),
 
+  // AI re-extraction for a single API
+  reextractApi: (apiId: string, files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f));
+    return fetch(`${BASE}/apis/${apiId}/reextract`, { method: "POST", body: form }).then((r) => {
+      if (!r.ok) return r.json().then((e) => Promise.reject(new Error(e.detail || r.statusText)));
+      return r.json() as Promise<ApiDef>;
+    });
+  },
+
   // Flows — read
   listFlows: (documentId?: string) =>
     req<Flow[]>(`/flows/${documentId ? `?document_id=${documentId}` : ""}`),
@@ -104,9 +128,22 @@ export interface Document {
   version?: string;
   doc_date?: string;
   raw_format: string;
-  pipeline_status: "markdown_ready" | "extracting" | "extraction_review" | "complete";
+  pipeline_status:
+    | "pending_sheet_selection"
+    | "file_ready"
+    | "markdown_ready"
+    | "extracting"
+    | "extraction_review"
+    | "complete";
   parser: string;
   created_at: string;
+}
+
+export interface SheetInfo {
+  name: string;
+  row_count: number;
+  col_count: number;
+  preview: string[][];
 }
 
 export interface ApiDef {
@@ -139,6 +176,7 @@ export interface ApiField {
   is_required: boolean;
   default_value?: string;
   constraints?: string;
+  value_logic?: string;
   is_encrypted: boolean;
   is_deprecated: boolean;
   confidence_score: number;
@@ -155,6 +193,7 @@ export interface CreateFieldPayload {
   is_required?: boolean;
   default_value?: string;
   constraints?: string;
+  value_logic?: string;
   is_encrypted?: boolean;
   is_deprecated?: boolean;
   parent_field_id?: string;

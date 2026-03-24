@@ -418,7 +418,8 @@ function FieldTable({ apiId, messageType, fields, example, onChanged }: {
             <th className="pb-2 pr-3 font-medium w-24">Type</th>
             <th className="pb-2 pr-3 font-medium w-12">Req</th>
             <th className="pb-2 pr-3 font-medium w-16">Max</th>
-            <th className="pb-2 font-medium">Description</th>
+            <th className="pb-2 pr-3 font-medium">Description</th>
+            <th className="pb-2 font-medium w-48">Value / Logic</th>
             <th className="pb-2 w-16"></th>
           </tr>
         </thead>
@@ -471,6 +472,7 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
     is_required: field.is_required,
     default_value: field.default_value ?? "",
     constraints: field.constraints ?? "",
+    value_logic: field.value_logic ?? "",
     is_encrypted: field.is_encrypted,
     is_deprecated: field.is_deprecated,
   });
@@ -487,6 +489,7 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
         is_required: form.is_required,
         default_value: form.default_value || undefined,
         constraints: form.constraints || undefined,
+        value_logic: form.value_logic || undefined,
         is_encrypted: form.is_encrypted,
         is_deprecated: form.is_deprecated,
       });
@@ -509,7 +512,7 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
     return (
       <>
         <tr className="bg-indigo-50/50 border-b border-indigo-200">
-          <td colSpan={6} className="py-2 px-3" style={{ paddingLeft: `${depth * 16 + 12}px` }}>
+          <td colSpan={7} className="py-2 px-3" style={{ paddingLeft: `${depth * 16 + 12}px` }}>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-stone-500">Name</label>
@@ -535,6 +538,10 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
               <div className="col-span-2">
                 <label className="text-xs text-stone-500">Constraints</label>
                 <Inp value={form.constraints} onChange={set("constraints")} className="w-full mt-0.5" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-stone-500">Value / Logic</label>
+                <Inp value={form.value_logic} onChange={set("value_logic")} className="w-full mt-0.5" placeholder="e.g. VCB001, Fixed: PAYMENT, If A then X; if B then Y" />
               </div>
               <div className="col-span-2 flex gap-4 text-xs text-stone-500 items-center flex-wrap">
                 <label className="flex items-center gap-1 cursor-pointer">
@@ -586,10 +593,13 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
           </span>
         </td>
         <td className="py-2 pr-3 text-xs text-stone-400">{field.max_length || "—"}</td>
-        <td className="py-2 text-xs text-stone-500">
+        <td className="py-2 pr-3 text-xs text-stone-500">
           {field.description}
           {field.default_value && <span className="text-stone-400"> [default: {field.default_value}]</span>}
           {field.constraints && <div className="text-stone-400 italic">{field.constraints}</div>}
+        </td>
+        <td className="py-2 text-xs text-stone-500">
+          {field.value_logic || <span className="text-stone-300">—</span>}
         </td>
         <td className="py-2 text-right pr-1">
           <span className="hidden group-hover:inline-flex gap-1">
@@ -634,7 +644,7 @@ function AddFieldRow({ apiId, messageType, onSaved, onCancel }: {
 
   return (
     <tr className="bg-indigo-50/50 border-b border-indigo-200">
-      <td colSpan={6} className="py-2 px-3">
+      <td colSpan={7} className="py-2 px-3">
         <div className="flex items-center gap-2 flex-wrap">
           <Inp value={form.name} onChange={set("name")} placeholder="field name *" className="w-32" />
           <Sel value={form.data_type} onChange={set("data_type")}

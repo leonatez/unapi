@@ -1,23 +1,35 @@
 """
-Parsing pipeline — split into three independent phases:
+Parsing pipeline — split into phases:
 
-  Phase 1 — ingest_to_markdown(file_bytes, filename, owner, parser)
-      Converts file to markdown, saves api_document record.
-      Returns { document_id, markdown }
+  Phase 1a — ingest_to_markdown(file_bytes, filename, owner, parser)
+      Non-XLSX: converts file to markdown via markitdown, saves api_document.
+      XLSX: saves file, lists sheets, creates api_document with
+            pipeline_status = "pending_sheet_selection".
+      Returns { document_id, markdown? } or { document_id, sheets, is_xlsx: True }
+
+  Phase 1b — confirm_sheet_selection(document_id, selected_sheets)
+      XLSX only. Uploads the saved file to Gemini File API,
+      stores gemini_file_uri + selected_sheets, sets pipeline_status = "file_ready".
+      Returns { status: "ok" }
 
   Phase 2 — extract_and_draft(document_id)
-      Reads markdown from DB, runs LLM, stores result in extraction_draft.
+      Reads from DB. If gemini_file_uri exists: uses Gemini File API extraction
+      (preserves images). Otherwise falls back to markdown-based extraction.
+      Stores result in extraction_draft.
       Returns the draft dict { flows: [...] }
 
   Phase 3 — persist_extraction(document_id)
       Reads extraction_draft from DB, persists flows + apis to tables.
       Returns stats { flows, apis, edge_cases }
 """
+import logging
 import os
 import uuid
-from app.services.parser.ingestion import ingest_file, save_upload
-from app.services.parser.llm_extractor import extract_all, extract_document_metadata
+from app.services.parser.ingestion import ingest_file, save_upload, list_xlsx_sheets, upload_to_gemini
+from app.services.parser.llm_extractor import extract_all, extract_all_from_file, extract_all_from_xlsx, extract_document_metadata
 from app.core.database import get_db
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Phase 1 ──────────────────────────────────────────────────
@@ -29,8 +41,12 @@ async def ingest_to_markdown(
     parser: str = "markitdown",
 ) -> dict:
     """
-    Convert file → markdown and create api_document record.
-    Returns { document_id, markdown }
+    Convert file → markdown (non-XLSX) or list sheets (XLSX).
+
+    XLSX returns:
+      { document_id, sheets: [...], is_xlsx: True }
+    Non-XLSX returns:
+      { document_id, markdown: "..." }
     """
     db = get_db()
 
@@ -38,43 +54,75 @@ async def ingest_to_markdown(
     file_path = save_upload(file_bytes, safe_name)
     ext = os.path.splitext(filename)[1].lower().lstrip(".")
 
-    markdown = ingest_file(file_path)
+    if ext == "xlsx":
+        # XLSX path: list sheets for user selection, defer Gemini upload
+        sheets = list_xlsx_sheets(file_path)
+        meta = {"name": filename, "partner_name": None, "flow_name": None, "version": None, "doc_date": None}
 
-    meta = extract_document_metadata(markdown, filename)
+        doc_row = (
+            db.table("api_document")
+            .insert({
+                "name": meta["name"],
+                "owner": owner,
+                "partner_name": meta["partner_name"],
+                "flow_name": meta["flow_name"],
+                "version": meta["version"],
+                "doc_date": meta["doc_date"],
+                "raw_format": "xlsx",
+                "raw_storage_path": file_path,
+                "markdown_content": None,
+                "pipeline_status": "pending_sheet_selection",
+                "parser": "gemini",
+            })
+            .execute()
+        )
+        document_id = doc_row.data[0]["id"]
+        return {"document_id": document_id, "sheets": sheets, "is_xlsx": True}
 
-    doc_row = (
-        db.table("api_document")
-        .insert({
-            "name": meta.get("name") or filename,
-            "owner": owner,
-            "partner_name": meta.get("partner_name"),
-            "flow_name": meta.get("flow_name"),
-            "version": meta.get("version"),
-            "doc_date": meta.get("doc_date"),
-            "raw_format": ext if ext in ("docx", "xlsx", "pdf", "md") else "docx",
-            "raw_storage_path": file_path,
-            "markdown_content": markdown,
-            "pipeline_status": "markdown_ready",
-            "parser": parser,
-        })
-        .execute()
-    )
-    document_id = doc_row.data[0]["id"]
-    return {"document_id": document_id, "markdown": markdown}
+    else:
+        # Non-XLSX path: convert to markdown via markitdown
+        markdown = ingest_file(file_path)
+        meta = extract_document_metadata(markdown, filename)
+
+        doc_row = (
+            db.table("api_document")
+            .insert({
+                "name": meta.get("name") or filename,
+                "owner": owner,
+                "partner_name": meta.get("partner_name"),
+                "flow_name": meta.get("flow_name"),
+                "version": meta.get("version"),
+                "doc_date": meta.get("doc_date"),
+                "raw_format": ext if ext in ("docx", "pdf", "md") else "docx",
+                "raw_storage_path": file_path,
+                "markdown_content": markdown,
+                "pipeline_status": "markdown_ready",
+                "parser": parser,
+            })
+            .execute()
+        )
+        document_id = doc_row.data[0]["id"]
+        return {"document_id": document_id, "markdown": markdown}
 
 
-# ─── Phase 2 ──────────────────────────────────────────────────
+# ─── Phase 1b ─────────────────────────────────────────────────
 
-def extract_and_draft(document_id: str) -> dict:
+def confirm_sheet_selection(
+    document_id: str,
+    selected_sheets: list[str],
+    sheet_kinds: dict[str, str] | None = None,
+    flow_sequence: dict[str, list[dict]] | None = None,
+) -> dict:
     """
-    Read markdown from DB, run combined LLM extraction, store draft.
-    Returns the extraction draft { flows: [...] } or raises on failure.
+    Upload the saved file to Gemini File API using selected sheets.
+    Updates document with gemini_file_uri + selected_sheets + sheet_kinds,
+    sets pipeline_status = "file_ready".
     """
     db = get_db()
 
     doc_row = (
         db.table("api_document")
-        .select("markdown_content")
+        .select("raw_storage_path")
         .eq("id", document_id)
         .single()
         .execute()
@@ -82,13 +130,84 @@ def extract_and_draft(document_id: str) -> dict:
     if not doc_row.data:
         raise ValueError(f"Document {document_id} not found")
 
-    markdown = doc_row.data.get("markdown_content") or ""
+    file_path = doc_row.data["raw_storage_path"]
+    logger.info("confirm_sheet_selection doc=%s sheets=%s", document_id, selected_sheets)
+    gemini_uri = upload_to_gemini(file_path)
+    logger.info("Gemini URI stored for doc=%s uri=%s", document_id, gemini_uri)
+
+    db.table("api_document").update({
+        "gemini_file_uri": gemini_uri,
+        "selected_sheets": selected_sheets,
+        "sheet_kinds": sheet_kinds or {},
+        "flow_sequence": flow_sequence or {},
+        "pipeline_status": "file_ready",
+    }).eq("id", document_id).execute()
+
+    return {"status": "ok", "gemini_file_uri": gemini_uri}
+
+
+# ─── Phase 2 ──────────────────────────────────────────────────
+
+def extract_and_draft(document_id: str) -> dict:
+    """
+    Run LLM extraction. Uses Gemini File API if gemini_file_uri is set,
+    otherwise falls back to markdown-based extraction.
+    Stores result in extraction_draft.
+    Returns the draft { flows: [...] }.
+    """
+    db = get_db()
+
+    doc_row = (
+        db.table("api_document")
+        .select("markdown_content, gemini_file_uri, selected_sheets, sheet_kinds, flow_sequence, raw_storage_path, raw_format")
+        .eq("id", document_id)
+        .single()
+        .execute()
+    )
+    if not doc_row.data:
+        raise ValueError(f"Document {document_id} not found")
 
     db.table("api_document").update({
         "pipeline_status": "extracting",
     }).eq("id", document_id).execute()
 
-    draft = extract_all(markdown)
+    gemini_uri = doc_row.data.get("gemini_file_uri")
+    selected_sheets = doc_row.data.get("selected_sheets") or []
+    sheet_kinds = doc_row.data.get("sheet_kinds") or {}
+    flow_sequence = doc_row.data.get("flow_sequence") or {}
+
+    raw_format = doc_row.data.get("raw_format", "")
+    raw_storage_path = doc_row.data.get("raw_storage_path")
+
+    if raw_format == "xlsx" and raw_storage_path:
+        # Gemini doesn't support XLSX as a file input — convert sheets to text
+        # and extract embedded images, passing both to Gemini with full hints.
+        logger.info("extract_and_draft XLSX path doc=%s sheets=%s", document_id, selected_sheets)
+        draft = extract_all_from_xlsx(
+            raw_storage_path,
+            selected_sheets or None,
+            sheet_kinds or None,
+            flow_sequence or None,
+        )
+        # Save the generated sheet markdown so "Edit Markdown" has content to show
+        sheet_md = draft.pop("_sheet_markdown", None)
+        if sheet_md:
+            db.table("api_document").update({"markdown_content": sheet_md}).eq("id", document_id).execute()
+    elif gemini_uri:
+        logger.info("extract_and_draft using Gemini File API doc=%s uri=%s sheets=%s", document_id, gemini_uri, selected_sheets)
+        draft = extract_all_from_file(
+            gemini_uri,
+            selected_sheets or None,
+            sheet_kinds or None,
+            flow_sequence or None,
+        )
+    else:
+        logger.info("extract_and_draft using markdown doc=%s", document_id)
+        markdown = doc_row.data.get("markdown_content") or ""
+        draft = extract_all(markdown)
+
+    if draft.get("_error"):
+        logger.error("LLM extraction returned error doc=%s: %s", document_id, draft["_error"])
 
     db.table("api_document").update({
         "pipeline_status": "extraction_review",
@@ -270,6 +389,7 @@ def _persist_fields(db, message_id: str, fields: list, parent_id: str | None = N
                 "is_required": f.get("is_required", False),
                 "default_value": f.get("default_value"),
                 "constraints": f.get("constraints"),
+                "value_logic": f.get("value_logic"),
                 "is_encrypted": f.get("is_encrypted", False),
                 "is_deprecated": f.get("is_deprecated", False),
                 "confidence_score": f.get("confidence_score", 1.0),

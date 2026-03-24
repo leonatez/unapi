@@ -1,13 +1,21 @@
+import logging
+import traceback
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from app.services.parser.pipeline import ingest_to_markdown, extract_and_draft, persist_extraction
+from app.services.parser.pipeline import (
+    ingest_to_markdown, confirm_sheet_selection,
+    extract_and_draft, persist_extraction,
+)
 from app.core.database import get_db
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ─── Upload: Phase 1 (markdown only, no AI) ────────────────────
+# ─── Upload: Phase 1 ──────────────────────────────────────────
+# XLSX  → returns { document_id, sheets, is_xlsx: true }
+# Other → returns { document_id, markdown }
 
 @router.post("/upload")
 async def upload_document(
@@ -16,20 +24,74 @@ async def upload_document(
     parser: str = Form("markitdown", description="Parser to use (markitdown)"),
 ):
     """
-    Upload a document and convert to Markdown. No AI extraction yet.
-    Returns { document_id, markdown } for user review.
-    pipeline_status is set to 'markdown_ready'.
+    Upload a document.
+    - XLSX: saves file, lists sheets for user selection.
+      Returns { document_id, sheets: [{name, row_count, col_count, preview}], is_xlsx: true }.
+      pipeline_status = 'pending_sheet_selection'.
+    - Other: converts to Markdown, returns { document_id, markdown }.
+      pipeline_status = 'markdown_ready'.
     """
     if owner not in ("Monee", "Bank"):
         raise HTTPException(400, "owner must be 'Monee' or 'Bank'")
-    if parser not in ("markitdown",):
-        raise HTTPException(400, "parser must be 'markitdown'")
 
     file_bytes = await file.read()
     if len(file_bytes) == 0:
         raise HTTPException(400, "Empty file")
 
     result = await ingest_to_markdown(file_bytes, file.filename, owner, parser)
+    return result
+
+
+# ─── Select sheets: Phase 1b (XLSX only) ──────────────────────
+
+class SelectSheetsBody(BaseModel):
+    selected_sheets: list[str]
+    sheet_kinds: dict[str, str] = {}
+    flow_sequence: dict[str, list[dict]] = {}
+
+
+@router.post("/{document_id}/select-sheets")
+def select_sheets(document_id: str, body: SelectSheetsBody):
+    """
+    Confirm sheet selection for an XLSX document.
+    Uploads the raw file to Gemini File API, stores the URI and selected sheet names.
+    Sets pipeline_status = 'file_ready'.
+    Returns { status, gemini_file_uri }.
+    """
+    if not body.selected_sheets:
+        raise HTTPException(400, "selected_sheets must not be empty")
+
+    db = get_db()
+    doc = (
+        db.table("api_document")
+        .select("id, pipeline_status")
+        .eq("id", document_id)
+        .single()
+        .execute()
+    )
+    if not doc.data:
+        raise HTTPException(404, "Document not found")
+    if doc.data["pipeline_status"] != "pending_sheet_selection":
+        raise HTTPException(400, f"Document is not awaiting sheet selection (status: {doc.data['pipeline_status']})")
+
+    try:
+        result = confirm_sheet_selection(
+            document_id,
+            body.selected_sheets,
+            body.sheet_kinds or None,
+            body.flow_sequence or None,
+        )
+    except ValueError as e:
+        logger.warning("select-sheets validation error doc=%s: %s", document_id, e)
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(
+            "select-sheets failed doc=%s\n%s",
+            document_id,
+            traceback.format_exc(),
+        )
+        raise HTTPException(500, f"Sheet selection failed: {e}")
+
     return result
 
 
@@ -67,7 +129,9 @@ def update_markdown(document_id: str, body: UpdateMarkdownBody):
 @router.post("/{document_id}/extract")
 def extract_document(document_id: str):
     """
-    Run AI extraction on the document's current markdown.
+    Run AI extraction on the document.
+    Uses Gemini File API if gemini_file_uri is set (XLSX path),
+    otherwise uses markdown content.
     Stores result in extraction_draft, sets pipeline_status = 'extraction_review'.
     Returns the draft for user review.
     """
@@ -76,11 +140,21 @@ def extract_document(document_id: str):
     if not doc.data:
         raise HTTPException(404, "Document not found")
 
+    allowed = {"markdown_ready", "file_ready", "extraction_review"}
+    if doc.data["pipeline_status"] not in allowed:
+        raise HTTPException(400, f"Cannot extract from status: {doc.data['pipeline_status']}")
+
     try:
         draft = extract_and_draft(document_id)
     except ValueError as e:
+        logger.warning("extract validation error doc=%s: %s", document_id, e)
         raise HTTPException(400, str(e))
     except Exception as e:
+        logger.error(
+            "extract failed doc=%s\n%s",
+            document_id,
+            traceback.format_exc(),
+        )
         raise HTTPException(500, f"Extraction failed: {e}")
 
     return {"status": "ok", "draft": draft}
@@ -126,8 +200,14 @@ def approve_extraction(document_id: str):
     try:
         stats = persist_extraction(document_id)
     except ValueError as e:
+        logger.warning("approve validation error doc=%s: %s", document_id, e)
         raise HTTPException(400, str(e))
     except Exception as e:
+        logger.error(
+            "approve failed doc=%s\n%s",
+            document_id,
+            traceback.format_exc(),
+        )
         raise HTTPException(500, f"Persist failed: {e}")
 
     return {"status": "ok", "document_id": document_id, **stats}

@@ -4,7 +4,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "1113:1113"
     env_file:
       - ./backend/.env
     volumes:
@@ -14,9 +14,9 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "1114:1114"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000/api
+      - NEXT_PUBLIC_API_URL=http://backend:1113/api
     depends_on:
       - backend
     restart: unless-stopped
