@@ -361,8 +361,8 @@ function StepRow({ step, flowId, isSelected, onSelect, onChanged }: {
           )}
         </div>
         {step.api_id
-          ? <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" title="API linked" />
-          : <Link2Off className="w-3.5 h-3.5 text-stone-300 shrink-0 mt-0.5" title="No API" />
+          ? <Link2 className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" aria-label="API linked" />
+          : <Link2Off className="w-3.5 h-3.5 text-stone-300 shrink-0 mt-0.5" aria-label="No API" />
         }
       </button>
       <div className="shrink-0 flex gap-0.5 pr-2 pt-2.5">

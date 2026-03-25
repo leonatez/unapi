@@ -578,9 +578,9 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
             {field.is_deprecated
               ? <span className="text-stone-400 line-through">{field.name}</span>
               : <span className="text-stone-800">{field.name}</span>}
-            {field.is_encrypted && <Lock className="w-3 h-3 text-amber-500 shrink-0" title="Encrypted" />}
+            {field.is_encrypted && <Lock className="w-3 h-3 text-amber-500 shrink-0" aria-label="Encrypted" />}
             {field.is_deprecated && <span className="text-xs text-stone-400">[dep]</span>}
-            {field.confidence_score < 0.7 && <AlertTriangle className="w-3 h-3 text-orange-500 shrink-0" title="Low confidence" />}
+            {field.confidence_score < 0.7 && <AlertTriangle className="w-3 h-3 text-orange-500 shrink-0" aria-label="Low confidence" />}
           </div>
           {field.api_field_enum && field.api_field_enum.length > 0 && (
             <div className="text-stone-400 text-xs mt-0.5">[{field.api_field_enum.map((e) => e.value).join(", ")}]</div>
