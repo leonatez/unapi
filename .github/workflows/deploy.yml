@@ -1,0 +1,46 @@
+name: Deploy to CapRover
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CapRover CLI
+        run: npm install -g caprover
+
+      - name: Create backend tarball
+        run: tar -czf /tmp/backend.tar.gz -C backend .
+
+      - name: Deploy to CapRover
+        run: |
+          caprover deploy \
+            --caproverUrl ${{ secrets.CAPROVER_URL }} \
+            --caproverPassword ${{ secrets.CAPROVER_PASSWORD }} \
+            --appName unapi-api \
+            --tarFile /tmp/backend.tar.gz
+
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CapRover CLI
+        run: npm install -g caprover
+
+      - name: Create frontend tarball
+        run: tar -czf /tmp/frontend.tar.gz -C frontend --exclude='./node_modules' --exclude='./.next' .
+
+      - name: Deploy to CapRover
+        run: |
+          caprover deploy \
+            --caproverUrl ${{ secrets.CAPROVER_URL }} \
+            --caproverPassword ${{ secrets.CAPROVER_PASSWORD }} \
+            --appName unapi \
+            --tarFile /tmp/frontend.tar.gz
