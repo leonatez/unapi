@@ -197,7 +197,7 @@ Each API must support:
 
 ### Request / Response
 
-* Headers
+* **Headers** — stored as a dedicated message type (`request_header` / `response_header`) separate from the body, rendered in a stacked layout in the UI (Headers table above Body table)
 * Body fields (nested)
 * Data types
 * Required flags
@@ -206,6 +206,16 @@ Each API must support:
 * **`value_logic`**: string — sample value (e.g. `VCB001`), fixed/constant value (e.g. `Fixed: PAYMENT`), or conditional logic (e.g. `If type=A then X; if type=B then Y`) as shown in the source document
 * **`is_encrypted`**: bool — field-level encryption flag (e.g., "red fields" in partner docs)
 * **`is_deprecated`**: bool — field is deprecated (strikethrough in source doc)
+* **`document_variable_id`**: FK reference — links a field to a global Document Variable instead of a hardcoded value
+
+### Document Variables
+
+Each document can define a set of **reusable global variables** (e.g., `clientId`, environment keys, shared constants) that can be referenced across many fields within that document.
+
+* Stored in the `document_variable` table, associated with a single `api_document`
+* Each variable has: `name`, `data_type`, `is_enum` (bool), `value` (scalar), `enum_values` (array), `description`
+* Variables are managed via a dedicated **Variables Panel** in the document sidebar — supports create, inline edit, and delete
+* When a variable is assigned to a field (`document_variable_id`), the `value_logic` text input is hidden and replaced by the variable reference badge in the spec view
 
 ### Enum Support
 
@@ -442,8 +452,8 @@ This ensures that breaking-change detection is never a false positive caused by 
 
 * `api_document` — source doc with metadata (partner name, flow name, version, date, revision history, `owner`: `"Monee"` | `"Bank"`)
 * `api` — canonical API definition (includes `exposed_by`)
-* `api_message` — request/response container
-* `api_field` — individual field (includes `value_logic`, `is_encrypted`, `is_deprecated`, `confidence_score`)
+* `api_message` — request/response container; `message_type` enum: `request` | `response` | `request_header` | `response_header`
+* `api_field` — individual field (includes `value_logic`, `is_encrypted`, `is_deprecated`, `confidence_score`, `document_variable_id`)
 * `api_field_enum` — enum values
 * `api_error` — error entry with resultStatus + resultCode + resultMessage triplet
 * `security_profile` — auth + signature details
@@ -451,6 +461,7 @@ This ensures that breaking-change detection is never a false positive caused by 
 * `flow_step` — step in a flow, linked to `api`
 * `edge_case` — runtime handling logic
 * `environment` — host/base URL per environment
+* `document_variable` — reusable named variable scoped to a document; supports scalar and enum types
 
 ### Design Principles
 
@@ -494,6 +505,15 @@ This ensures that breaking-change detection is never a false positive caused by 
 * Expand schema tree
 * View enums and constraints
 * See deprecated / encrypted field badges
+* **Headers + Body stacked**: Request and Response tabs each render two consecutive tables — Headers on top, Body below
+* **Variable badge**: fields linked to a Document Variable show the variable name as a badge instead of raw value_logic text
+* **Re-extract**: upload new screenshots or markdown snippets to re-run AI extraction for a single API without re-processing the full document
+
+### Document Variables Management
+
+* Accessible from the left sidebar of each document via the **Variables Panel**
+* Create, rename, change type, toggle enum mode, and delete variables inline
+* Enum variables show comma-separated options during edit; stored as an array
 
 ### Edge Case Inspection
 
@@ -581,6 +601,7 @@ Applied to Supabase in order:
 | `002_data_model_refactor.sql` | `flow_step`, `security_profile`, `api_field_enum`, `diff_result`; `extraction_draft jsonb`, `sheet_kinds jsonb`, `flow_sequence jsonb`; `api.flow_id` FK replacing `document_id`; cascade deletes |
 | `003_gemini_file_api.sql` | `gemini_file_uri text`, `selected_sheets text[]` on `api_document`; new pipeline statuses `pending_sheet_selection` and `file_ready` |
 | `004_value_logic.sql` | `value_logic text` on `api_field` — sample value, fixed constant, or conditional logic string extracted from source doc |
+| `005_headers_and_variables.sql` | Adds `request_header` and `response_header` to `message_type_enum`; creates `document_variable` table (scoped to `api_document`); adds `document_variable_id uuid` FK on `api_field` with cascade delete |
 
 **`pipeline_status` value lifecycle:**
 ```
