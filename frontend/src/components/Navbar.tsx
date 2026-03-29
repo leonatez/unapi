@@ -2,12 +2,16 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Zap, FileText, GitBranch, GitCompare, Menu, X } from "lucide-react";
+import { Zap, FileText, GitBranch, GitCompare, Menu, X, SlidersHorizontal } from "lucide-react";
 
 const links = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/flows",     label: "Flows",     icon: GitBranch },
   { href: "/compare",   label: "Compare",   icon: GitCompare },
+];
+
+const devLinks = [
+  { href: "/admin", label: "Prompts", icon: SlidersHorizontal },
 ];
 
 function SidebarInner({ onNav }: { onNav?: () => void }) {
@@ -63,8 +67,38 @@ function SidebarInner({ onNav }: { onNav?: () => void }) {
         })}
       </nav>
 
+      {/* Dev section */}
+      <div className="px-3 pb-2 border-t border-stone-100 pt-2">
+        <div className="px-2 mb-1">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">Dev</span>
+        </div>
+        {devLinks.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link
+              key={href}
+              href={href}
+              onClick={onNav}
+              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+                active
+                  ? "bg-indigo-50 text-indigo-700"
+                  : "text-stone-500 hover:bg-stone-100/80 hover:text-stone-900"
+              }`}
+            >
+              <Icon
+                className={`w-[15px] h-[15px] shrink-0 transition-colors ${
+                  active ? "text-indigo-600" : "text-stone-400"
+                }`}
+                strokeWidth={active ? 2 : 1.75}
+              />
+              {label}
+            </Link>
+          );
+        })}
+      </div>
+
       {/* Footer badge */}
-      <div className="px-5 py-5 border-t border-stone-100">
+      <div className="px-5 py-4 border-t border-stone-100">
         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stone-100 border border-stone-200/60">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[10px] font-medium text-stone-500">API Intelligence</span>

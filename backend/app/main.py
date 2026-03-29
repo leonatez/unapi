@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import documents, apis, flows, compare, export
+from app.api.routes import documents, apis, flows, compare, export, admin
 from app.core.config import get_settings
 
 logging.basicConfig(
@@ -41,6 +41,7 @@ app.include_router(apis.router, prefix="/api/apis", tags=["apis"])
 app.include_router(flows.router, prefix="/api/flows", tags=["flows"])
 app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
 app.include_router(export.router, prefix="/api/export", tags=["export"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/api/health")

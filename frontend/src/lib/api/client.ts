@@ -123,6 +123,16 @@ export const api = {
   // Export
   exportPostman: (docId: string) => `${BASE}/export/${docId}/postman`,
   exportOpenApi: (docId: string) => `${BASE}/export/${docId}/openapi`,
+
+  // Admin — prompts
+  listPrompts: () => req<Record<string, { label: string; description: string; value: string }>>("/admin/prompts"),
+  updatePrompt: (key: string, value: string) =>
+    req<{ status: string; key: string }>(`/admin/prompts/${key}`, {
+      method: "PATCH",
+      body: JSON.stringify({ value }),
+    }),
+  resetPrompt: (key: string) =>
+    req<{ status: string; key: string; value: string }>(`/admin/prompts/${key}/reset`, { method: "POST" }),
 };
 
 // Types
