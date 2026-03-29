@@ -24,6 +24,13 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ markdown }),
     }),
+  listDocumentVariables: (id: string) => req<DocumentVariable[]>(`/documents/${id}/variables`),
+  createDocumentVariable: (id: string, data: Partial<DocumentVariable>) =>
+    req<DocumentVariable>(`/documents/${id}/variables`, { method: "POST", body: JSON.stringify(data) }),
+  updateDocumentVariable: (id: string, varId: string, data: Partial<DocumentVariable>) =>
+    req<DocumentVariable>(`/documents/${id}/variables/${varId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteDocumentVariable: (id: string, varId: string) =>
+    req<void>(`/documents/${id}/variables/${varId}`, { method: "DELETE" }),
   selectSheets: (
     id: string,
     selectedSheets: string[],
@@ -162,7 +169,7 @@ export interface ApiDef {
 
 export interface ApiMessage {
   id: string;
-  message_type: "request" | "response";
+  message_type: "request" | "response" | "request_header" | "response_header";
   example_json?: string;
   api_field?: ApiField[];
 }
@@ -181,11 +188,12 @@ export interface ApiField {
   is_deprecated: boolean;
   confidence_score: number;
   parent_field_id?: string;
+  document_variable_id?: string;
   api_field_enum?: { value: string; label?: string }[];
 }
 
 export interface CreateFieldPayload {
-  message_type: "request" | "response";
+  message_type: "request" | "response" | "request_header" | "response_header";
   name: string;
   description?: string;
   data_type?: string;
@@ -197,6 +205,7 @@ export interface CreateFieldPayload {
   is_encrypted?: boolean;
   is_deprecated?: boolean;
   parent_field_id?: string;
+  document_variable_id?: string;
 }
 
 export interface ApiError {
@@ -215,6 +224,18 @@ export interface EdgeCase {
   retry_max?: number;
   retry_interval_sec?: number;
   notes?: string;
+}
+
+export interface DocumentVariable {
+  id: string;
+  document_id: string;
+  name: string;
+  data_type?: string;
+  is_enum: boolean;
+  value?: string;
+  enum_values?: string[];
+  description?: string;
+  created_at: string;
 }
 
 export interface SecurityProfile {

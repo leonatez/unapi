@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Lock, AlertTriangle, Pencil, X, Upload, Loader2 } from "lucide-react";
-import { ApiDef, ApiField, ApiError, EdgeCase, api } from "@/lib/api/client";
+import { ApiDef, ApiField, ApiError, EdgeCase, api, DocumentVariable } from "@/lib/api/client";
 
 interface Props {
+  documentId: string;
   api: ApiDef;
   onApiUpdated?: (updated: ApiDef) => void;
 }
@@ -56,10 +57,11 @@ function SaveCancel({ onSave, onCancel, saving }: {
 
 // ─── Main panel ────────────────────────────────────────────────
 
-export default function ApiSpecPanel({ api: apiDef, onApiUpdated }: Props) {
+export default function ApiSpecPanel({ documentId, api: apiDef, onApiUpdated }: Props) {
   const [localApi, setLocalApi] = useState<ApiDef>(apiDef);
   const [errors, setErrors] = useState<ApiError[]>([]);
   const [edgeCases, setEdgeCases] = useState<EdgeCase[]>([]);
+  const [variables, setVariables] = useState<DocumentVariable[]>([]);
   const [tab, setTab] = useState<"request" | "response" | "errors" | "edge">("request");
   const [editingHeader, setEditingHeader] = useState(false);
   const [showReextract, setShowReextract] = useState(false);
@@ -72,7 +74,8 @@ export default function ApiSpecPanel({ api: apiDef, onApiUpdated }: Props) {
   useEffect(() => {
     api.getApiErrors(apiDef.id).then(setErrors);
     api.getApiEdgeCases(apiDef.id).then(setEdgeCases);
-  }, [apiDef.id]);
+    api.listDocumentVariables(documentId).then(setVariables);
+  }, [apiDef.id, documentId]);
 
   const refreshFields = useCallback(async () => {
     const fresh = await api.getApi(localApi.id);
@@ -81,7 +84,9 @@ export default function ApiSpecPanel({ api: apiDef, onApiUpdated }: Props) {
   }, [localApi.id, onApiUpdated]);
 
   const request = localApi.api_message?.find((m) => m.message_type === "request");
+  const requestHeader = localApi.api_message?.find((m) => m.message_type === "request_header");
   const response = localApi.api_message?.find((m) => m.message_type === "response");
+  const responseHeader = localApi.api_message?.find((m) => m.message_type === "response_header");
 
   return (
     <div className="p-6 max-w-4xl">
@@ -161,22 +166,46 @@ export default function ApiSpecPanel({ api: apiDef, onApiUpdated }: Props) {
 
       {/* Tab content */}
       {tab === "request" && (
-        <FieldTable
-          apiId={localApi.id}
-          messageType="request"
-          fields={request?.api_field || []}
-          example={request?.example_json}
-          onChanged={refreshFields}
-        />
+        <div className="space-y-8">
+          <FieldTable
+            title="Request Headers"
+            apiId={localApi.id}
+            messageType="request_header"
+            fields={requestHeader?.api_field || []}
+            variables={variables}
+            onChanged={refreshFields}
+          />
+          <FieldTable
+            title="Request Body"
+            apiId={localApi.id}
+            messageType="request"
+            fields={request?.api_field || []}
+            example={request?.example_json}
+            variables={variables}
+            onChanged={refreshFields}
+          />
+        </div>
       )}
       {tab === "response" && (
-        <FieldTable
-          apiId={localApi.id}
-          messageType="response"
-          fields={response?.api_field || []}
-          example={response?.example_json}
-          onChanged={refreshFields}
-        />
+        <div className="space-y-8">
+          <FieldTable
+            title="Response Headers"
+            apiId={localApi.id}
+            messageType="response_header"
+            fields={responseHeader?.api_field || []}
+            variables={variables}
+            onChanged={refreshFields}
+          />
+          <FieldTable
+            title="Response Body"
+            apiId={localApi.id}
+            messageType="response"
+            fields={response?.api_field || []}
+            example={response?.example_json}
+            variables={variables}
+            onChanged={refreshFields}
+          />
+        </div>
       )}
       {tab === "errors" && (
         <ErrorTable
@@ -398,11 +427,13 @@ function ApiHeaderEdit({ apiDef, onSaved, onCancel }: {
 
 // ─── Field Table ───────────────────────────────────────────────
 
-function FieldTable({ apiId, messageType, fields, example, onChanged }: {
+function FieldTable({ title, apiId, messageType, fields, example, variables, onChanged }: {
+  title?: string;
   apiId: string;
-  messageType: "request" | "response";
+  messageType: "request" | "response" | "request_header" | "response_header";
   fields: ApiField[];
   example?: string | null;
+  variables: DocumentVariable[];
   onChanged: () => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -411,6 +442,7 @@ function FieldTable({ apiId, messageType, fields, example, onChanged }: {
 
   return (
     <div>
+      {title && <h3 className="text-sm font-semibold text-[#1A1A1A] mb-2">{title}</h3>}
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="text-left text-xs text-stone-400 border-b border-stone-200">
@@ -425,12 +457,13 @@ function FieldTable({ apiId, messageType, fields, example, onChanged }: {
         </thead>
         <tbody>
           {roots.map((f) => (
-            <FieldRow key={f.id} field={f} depth={0} allFields={fields} apiId={apiId} onChanged={onChanged} />
+            <FieldRow key={f.id} field={f} depth={0} allFields={fields} apiId={apiId} variables={variables} onChanged={onChanged} />
           ))}
           {adding && (
             <AddFieldRow
               apiId={apiId}
               messageType={messageType}
+              variables={variables}
               onSaved={() => { setAdding(false); onChanged(); }}
               onCancel={() => setAdding(false)}
             />
@@ -453,14 +486,14 @@ function FieldTable({ apiId, messageType, fields, example, onChanged }: {
       )}
 
       {roots.length === 0 && !adding && (
-        <p className="text-stone-400 text-xs mt-2">No fields extracted. Use + Add field to add manually.</p>
+        <p className="text-stone-400 text-xs mt-2">No {title ? title.toLowerCase() : "fields"} extracted. Use + Add field to add manually.</p>
       )}
     </div>
   );
 }
 
-function FieldRow({ field, depth, allFields, apiId, onChanged }: {
-  field: ApiField; depth: number; allFields: ApiField[]; apiId: string; onChanged: () => void;
+function FieldRow({ field, depth, allFields, apiId, variables, onChanged }: {
+  field: ApiField; depth: number; allFields: ApiField[]; apiId: string; variables: DocumentVariable[]; onChanged: () => void;
 }) {
   const children = allFields.filter((f) => f.parent_field_id === field.id);
   const [editing, setEditing] = useState(false);
@@ -475,6 +508,7 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
     value_logic: field.value_logic ?? "",
     is_encrypted: field.is_encrypted,
     is_deprecated: field.is_deprecated,
+    document_variable_id: field.document_variable_id ?? "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -492,6 +526,7 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
         value_logic: form.value_logic || undefined,
         is_encrypted: form.is_encrypted,
         is_deprecated: form.is_deprecated,
+        document_variable_id: form.document_variable_id || undefined,
       });
       setEditing(false);
       onChanged();
@@ -540,8 +575,20 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
                 <Inp value={form.constraints} onChange={set("constraints")} className="w-full mt-0.5" />
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-stone-500">Value / Logic</label>
-                <Inp value={form.value_logic} onChange={set("value_logic")} className="w-full mt-0.5" placeholder="e.g. VCB001, Fixed: PAYMENT, If A then X; if B then Y" />
+                <label className="text-xs text-stone-500 block mb-1">Value / Variable</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={form.document_variable_id}
+                    onChange={(e) => setForm((f) => ({ ...f, document_variable_id: e.target.value }))}
+                    className="w-40 bg-white border border-stone-300 rounded px-2 py-1 text-sm text-stone-800 focus:outline-none focus:border-indigo-400"
+                  >
+                    <option value="">(Custom Value)</option>
+                    {variables.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                  {!form.document_variable_id && (
+                    <Inp value={form.value_logic} onChange={set("value_logic")} className="flex-1" placeholder="e.g. VCB001, Fixed: PAYMENT" />
+                  )}
+                </div>
               </div>
               <div className="col-span-2 flex gap-4 text-xs text-stone-500 items-center flex-wrap">
                 <label className="flex items-center gap-1 cursor-pointer">
@@ -564,7 +611,7 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
           </td>
         </tr>
         {children.map((c) => (
-          <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} apiId={apiId} onChanged={onChanged} />
+          <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} apiId={apiId} variables={variables} onChanged={onChanged} />
         ))}
       </>
     );
@@ -599,7 +646,13 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
           {field.constraints && <div className="text-stone-400 italic">{field.constraints}</div>}
         </td>
         <td className="py-2 text-xs text-stone-500">
-          {field.value_logic || <span className="text-stone-300">—</span>}
+          {field.document_variable_id ? (
+            <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono border border-indigo-100">
+              {variables.find((v) => v.id === field.document_variable_id)?.name || "Unknown"}
+            </span>
+          ) : (
+            field.value_logic || <span className="text-stone-300">—</span>
+          )}
         </td>
         <td className="py-2 text-right pr-1">
           <span className="hidden group-hover:inline-flex gap-1">
@@ -611,16 +664,16 @@ function FieldRow({ field, depth, allFields, apiId, onChanged }: {
         </td>
       </tr>
       {children.map((c) => (
-        <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} apiId={apiId} onChanged={onChanged} />
+        <FieldRow key={c.id} field={c} depth={depth + 1} allFields={allFields} apiId={apiId} variables={variables} onChanged={onChanged} />
       ))}
     </>
   );
 }
 
-function AddFieldRow({ apiId, messageType, onSaved, onCancel }: {
-  apiId: string; messageType: "request" | "response"; onSaved: () => void; onCancel: () => void;
+function AddFieldRow({ apiId, messageType, variables, onSaved, onCancel }: {
+  apiId: string; messageType: "request" | "response" | "request_header" | "response_header"; variables: DocumentVariable[]; onSaved: () => void; onCancel: () => void;
 }) {
-  const [form, setForm] = useState({ name: "", data_type: "", is_required: false, description: "" });
+  const [form, setForm] = useState({ name: "", data_type: "", is_required: false, description: "", document_variable_id: "" });
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -633,6 +686,7 @@ function AddFieldRow({ apiId, messageType, onSaved, onCancel }: {
         data_type: form.data_type || undefined,
         is_required: form.is_required,
         description: form.description || undefined,
+        document_variable_id: form.document_variable_id || undefined,
       });
       onSaved();
     } finally {
@@ -650,6 +704,14 @@ function AddFieldRow({ apiId, messageType, onSaved, onCancel }: {
           <Sel value={form.data_type} onChange={set("data_type")}
             options={["", "String", "Number", "Boolean", "Object", "Array", "Date"]} />
           <Inp value={form.description} onChange={set("description")} placeholder="description" className="flex-1 min-w-32" />
+          <select
+            value={form.document_variable_id}
+            onChange={(e) => set("document_variable_id")(e.target.value)}
+            className="w-32 bg-white border border-stone-300 rounded px-2 py-1 text-sm text-stone-800 focus:outline-none focus:border-indigo-400"
+          >
+            <option value="">VAR</option>
+            {variables.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
           <label className="flex items-center gap-1 text-xs text-stone-500 cursor-pointer">
             <input type="checkbox" checked={form.is_required}
               onChange={(e) => set("is_required")(e.target.checked)} className="accent-red-500" />

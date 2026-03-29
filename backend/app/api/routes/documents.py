@@ -251,3 +251,63 @@ def delete_document(document_id: str):
     # flow and api cascade from api_document (after migration 002)
     db.table("api_document").delete().eq("id", document_id).execute()
     return {"status": "deleted"}
+
+
+# ─── Variables ────────────────────────────────────────────────
+
+class DocumentVariableBody(BaseModel):
+    name: str
+    data_type: Optional[str] = None
+    is_enum: bool = False
+    value: Optional[str] = None
+    enum_values: list[str] = []
+    description: Optional[str] = None
+
+class DocumentVariableUpdateBody(BaseModel):
+    name: Optional[str] = None
+    data_type: Optional[str] = None
+    is_enum: Optional[bool] = None
+    value: Optional[str] = None
+    enum_values: Optional[list[str]] = None
+    description: Optional[str] = None
+
+
+@router.get("/{document_id}/variables")
+def list_variables(document_id: str):
+    db = get_db()
+    rows = (
+        db.table("document_variable")
+        .select("*")
+        .eq("document_id", document_id)
+        .order("name", desc=False)
+        .execute()
+    )
+    return rows.data
+
+
+@router.post("/{document_id}/variables")
+def create_variable(document_id: str, body: DocumentVariableBody):
+    db = get_db()
+    payload = body.model_dump()
+    payload["document_id"] = document_id
+    row = db.table("document_variable").insert(payload).execute()
+    return row.data[0]
+
+
+@router.patch("/{document_id}/variables/{variable_id}")
+def update_variable(document_id: str, variable_id: str, body: DocumentVariableUpdateBody):
+    db = get_db()
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not data:
+        raise HTTPException(400, "Nothing to update")
+    row = db.table("document_variable").update(data).eq("id", variable_id).execute()
+    if not row.data:
+        raise HTTPException(404, "Variable not found")
+    return row.data[0]
+
+
+@router.delete("/{document_id}/variables/{variable_id}", status_code=204)
+def delete_variable(document_id: str, variable_id: str):
+    db = get_db()
+    db.table("document_variable").delete().eq("id", variable_id).execute()
+

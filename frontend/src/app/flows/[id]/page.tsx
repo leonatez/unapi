@@ -210,7 +210,7 @@ export default function FlowDetailPage() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <ApiSpecPanel api={selectedApi} />
+              <ApiSpecPanel documentId={flow.document_id || ""} api={selectedApi} />
             </div>
           ) : (
             <div className="p-6 bg-white min-h-full">

@@ -26,6 +26,8 @@ class HttpMethod(str, Enum):
 class MessageType(str, Enum):
     request = "request"
     response = "response"
+    request_header = "request_header"
+    response_header = "response_header"
 
 
 class EdgeAction(str, Enum):
@@ -88,6 +90,27 @@ class ApiDocumentCreate(BaseModel):
     parser: str = "markitdown"
 
 
+# ─── Document Variable ────────────────────────────────────────────────────────
+
+class DocumentVariableCreate(BaseModel):
+    name: str
+    data_type: Optional[str] = None
+    is_enum: bool = False
+    value: Optional[str] = None
+    enum_values: list[str] = Field(default_factory=list)
+    description: Optional[str] = None
+
+
+class DocumentVariableUpdate(BaseModel):
+    name: Optional[str] = None
+    data_type: Optional[str] = None
+    is_enum: Optional[bool] = None
+    value: Optional[str] = None
+    enum_values: Optional[list[str]] = None
+    description: Optional[str] = None
+
+
+
 # ─── API ──────────────────────────────────────────────────────────────────────
 
 class ApiCreate(BaseModel):
@@ -119,6 +142,7 @@ class ApiFieldCreate(BaseModel):
     is_deprecated: bool = False
     confidence_score: float = 1.0
     enums: list[str] = Field(default_factory=list)
+    document_variable_id: Optional[str] = None
 
 
 # ─── Message ──────────────────────────────────────────────────────────────────

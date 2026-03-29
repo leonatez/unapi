@@ -99,6 +99,7 @@ class CreateFieldBody(BaseModel):
     is_encrypted: bool = False
     is_deprecated: bool = False
     parent_field_id: Optional[str] = None
+    document_variable_id: Optional[str] = None
 
 
 class UpdateFieldBody(BaseModel):
@@ -113,6 +114,7 @@ class UpdateFieldBody(BaseModel):
     is_encrypted: Optional[bool] = None
     is_deprecated: Optional[bool] = None
     confidence_score: Optional[float] = None
+    document_variable_id: Optional[str] = None
 
 
 @router.post("/{api_id}/fields")
@@ -262,6 +264,7 @@ async def reextract_api_endpoint(
         db.table("api_message")
         .select("id, message_type")
         .eq("api_id", api_id)
+        .in_("message_type", ["request", "response", "request_header", "response_header"])
         .execute()
         .data
     )
@@ -271,7 +274,7 @@ async def reextract_api_endpoint(
         # Delete all existing fields for this message
         db.table("api_field").delete().eq("message_id", msg["id"]).execute()
 
-    for msg_type in ("request", "response"):
+    for msg_type in ("request_header", "request", "response_header", "response"):
         msg_data = result.get(msg_type, {})
         if not msg_data:
             continue

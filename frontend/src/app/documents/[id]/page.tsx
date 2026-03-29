@@ -4,6 +4,8 @@ import { useParams, useRouter } from "next/navigation";
 import { FileText, ChevronRight, GitBranch, AlertTriangle, ArrowRight } from "lucide-react";
 import { api, Document, ApiDef, Flow, FlowApi } from "@/lib/api/client";
 import ApiSpecPanel from "@/components/api-spec/ApiSpecPanel";
+import VariablesPanel from "@/components/documents/VariablesPanel";
+import { Tag } from "lucide-react";
 
 const METHOD_STYLES: Record<string, string> = {
   GET:    "text-emerald-400 bg-emerald-500/10",
@@ -26,6 +28,7 @@ export default function DocumentDetailPage() {
   const [doc, setDoc] = useState<Document | null>(null);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [selected, setSelected] = useState<ApiDef | null>(null);
+  const [view, setView] = useState<"api" | "variables" | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -51,6 +54,7 @@ export default function DocumentDetailPage() {
   const loadFullApi = async (apiId: string) => {
     const full = await api.getApi(apiId);
     setSelected(full);
+    setView("api");
   };
 
   const handleApiUpdated = (updated: ApiDef) => {
@@ -109,8 +113,24 @@ export default function DocumentDetailPage() {
           </div>
         )}
 
+        {/* Variables Section */}
+        <div className="p-2 border-t border-gray-800">
+          <button
+            onClick={() => setView("variables")}
+            className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
+              view === "variables"
+                ? "bg-indigo-950 border border-indigo-800 text-white"
+                : "text-gray-300 hover:bg-gray-800 border border-transparent"
+            }`}
+          >
+            <Tag className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span className="text-sm font-medium">Global Variables</span>
+            {view === "variables" && <ChevronRight className="w-3 h-3 text-indigo-400 ml-auto shrink-0" />}
+          </button>
+        </div>
+
         {/* Flow + API list */}
-        <div className="p-2 mt-1">
+        <div className="p-2 border-t border-gray-800">
           {flows.length === 0 ? (
             <p className="text-xs text-gray-600 px-2 py-3 italic">No flows yet.</p>
           ) : (
@@ -126,7 +146,7 @@ export default function DocumentDetailPage() {
                   </div>
                   {/* APIs under this flow */}
                   {flowApis.map((a) => {
-                    const isSelected = selected?.id === a.id;
+                    const isSelected = view === "api" && selected?.id === a.id;
                     const methodStyle = a.method ? (METHOD_STYLES[a.method] ?? "text-gray-400 bg-gray-800") : "";
                     return (
                       <button
@@ -168,13 +188,15 @@ export default function DocumentDetailPage() {
       </div>
 
       {/* Main panel */}
-      <div className="flex-1 overflow-y-auto">
-        {selected ? (
-          <ApiSpecPanel api={selected} onApiUpdated={handleApiUpdated} />
+      <div className="flex-1 overflow-y-auto bg-white border-l border-gray-800">
+        {view === "variables" ? (
+          <VariablesPanel documentId={doc.id} />
+        ) : view === "api" && selected ? (
+          <ApiSpecPanel documentId={doc.id} api={selected} onApiUpdated={handleApiUpdated} />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-gray-700 gap-2">
-            <FileText className="w-10 h-10 opacity-20" />
-            <span className="text-sm">Select an API from the sidebar</span>
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
+            <FileText className="w-12 h-12 opacity-20" />
+            <span className="text-sm font-medium">Select an API or Global Variables from the sidebar</span>
           </div>
         )}
       </div>
