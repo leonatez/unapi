@@ -680,7 +680,8 @@ export default function DocumentsPage() {
   const [docs, setDocs]         = useState<Document[]>([]);
   const [loading, setLoading]   = useState(true);
   const [owner, setOwner]       = useState<"Monee" | "Bank">("Monee");
-  const [parser, setParser]     = useState("openpyxl");
+  const [parser, setParser]         = useState("markitdown");
+  const [fileIsXlsx, setFileIsXlsx] = useState(false);
   const [pipeline, setPipeline] = useState<PipelineState>({ step: "idle" });
   const [isXlsx, setIsXlsx]     = useState(false);
   const fileRef     = useRef<HTMLInputElement>(null);
@@ -908,6 +909,12 @@ export default function DocumentsPage() {
                 type="file"
                 accept=".docx,.xlsx,.md,.pdf"
                 className="text-[13px] text-stone-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-xs file:font-medium hover:file:bg-indigo-700 file:cursor-pointer"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  const xlsx = file?.name.toLowerCase().endsWith(".xlsx") ?? false;
+                  setFileIsXlsx(xlsx);
+                  setParser(xlsx ? "openpyxl" : "markitdown");
+                }}
               />
               <span className="text-[11px] text-stone-400">DOCX · XLSX · MD · PDF</span>
             </div>
@@ -929,7 +936,7 @@ export default function DocumentsPage() {
                 onChange={e => setParser(e.target.value)}
                 className="bg-white border border-stone-200 rounded-xl px-3 py-2 text-[13px] text-stone-700"
               >
-                <option value="openpyxl">openpyxl (default)</option>
+                {fileIsXlsx && <option value="openpyxl">openpyxl (default)</option>}
                 <option value="markitdown">markitdown</option>
               </select>
             </div>

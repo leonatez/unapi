@@ -208,6 +208,7 @@ def extract_all_from_xlsx(
     selected_sheets: list[str] | None = None,
     sheet_kinds: dict[str, str] | None = None,
     flow_sequence: dict[str, list[dict]] | None = None,
+    parser: str = "openpyxl",
 ) -> dict:
     """
     Extract from an XLSX file by:
@@ -260,10 +261,14 @@ def extract_all_from_xlsx(
         sheet_names = selected_sheets if selected_sheets else wb.sheetnames
 
         # ── Convert selected sheets to markdown ──
-        # Uses the custom openpyxl parser: handles merged cells (no duplication),
-        # detects multiple table regions per sheet, and renders sparse rows as prose.
-        from app.services.parser.ingestion import xlsx_to_markdown
-        sheet_text = xlsx_to_markdown(file_path, sheet_names)
+        if parser == "markitdown":
+            from markitdown import MarkItDown
+            sheet_text = MarkItDown().convert(file_path).text_content
+        else:
+            # openpyxl (default): handles merged cells, multiple tables per sheet,
+            # sparse rows as prose.
+            from app.services.parser.ingestion import xlsx_to_markdown
+            sheet_text = xlsx_to_markdown(file_path, sheet_names)
 
         # ── Extract embedded images from selected sheets ──
         uploaded_images = []

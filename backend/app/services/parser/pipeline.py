@@ -76,7 +76,7 @@ async def ingest_to_markdown(
                 "raw_storage_path": file_path,
                 "markdown_content": None,
                 "pipeline_status": "pending_sheet_selection",
-                "parser": "openpyxl",
+                "parser": parser,
             })
             .execute()
         )
@@ -159,7 +159,7 @@ def extract_and_draft(document_id: str) -> dict:
 
     doc_row = (
         db.table("api_document")
-        .select("markdown_content, gemini_file_uri, selected_sheets, sheet_kinds, flow_sequence, raw_storage_path, raw_format")
+        .select("markdown_content, gemini_file_uri, selected_sheets, sheet_kinds, flow_sequence, raw_storage_path, raw_format, parser")
         .eq("id", document_id)
         .single()
         .execute()
@@ -178,16 +178,18 @@ def extract_and_draft(document_id: str) -> dict:
 
     raw_format = doc_row.data.get("raw_format", "")
     raw_storage_path = doc_row.data.get("raw_storage_path")
+    doc_parser = doc_row.data.get("parser") or "openpyxl"
 
     if raw_format == "xlsx" and raw_storage_path:
         # Gemini doesn't support XLSX as a file input — convert sheets to text
         # and extract embedded images, passing both to Gemini with full hints.
-        logger.info("extract_and_draft XLSX path doc=%s sheets=%s", document_id, selected_sheets)
+        logger.info("extract_and_draft XLSX path doc=%s sheets=%s parser=%s", document_id, selected_sheets, doc_parser)
         draft = extract_all_from_xlsx(
             raw_storage_path,
             selected_sheets or None,
             sheet_kinds or None,
             flow_sequence or None,
+            parser=doc_parser,
         )
         # Save the generated sheet markdown so "Edit Markdown" has content to show
         sheet_md = draft.pop("_sheet_markdown", None)
