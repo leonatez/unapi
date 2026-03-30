@@ -259,31 +259,11 @@ def extract_all_from_xlsx(
         wb = openpyxl.load_workbook(file_path, data_only=True)
         sheet_names = selected_sheets if selected_sheets else wb.sheetnames
 
-        # ── Convert selected sheets to markdown tables ──
-        text_parts = []
-        for name in sheet_names:
-            if name not in wb.sheetnames:
-                continue
-            ws = wb[name]
-            text_parts.append(f"\n## Sheet: {name}\n")
-            rows = []
-            for row in ws.iter_rows(values_only=True):
-                if not any(cell is not None for cell in row):
-                    continue
-                rows.append([str(c) if c is not None else "" for c in row])
-            if not rows:
-                text_parts.append("(empty)\n")
-                continue
-            col_count = max(len(r) for r in rows)
-            header = rows[0] + [""] * (col_count - len(rows[0]))
-            text_parts.append("| " + " | ".join(header) + " |")
-            text_parts.append("| " + " | ".join(["---"] * col_count) + " |")
-            for row in rows[1:]:
-                padded = row + [""] * (col_count - len(row))
-                text_parts.append("| " + " | ".join(padded) + " |")
-            text_parts.append("")
-
-        sheet_text = "\n".join(text_parts)
+        # ── Convert selected sheets to markdown ──
+        # Uses the custom openpyxl parser: handles merged cells (no duplication),
+        # detects multiple table regions per sheet, and renders sparse rows as prose.
+        from app.services.parser.ingestion import xlsx_to_markdown
+        sheet_text = xlsx_to_markdown(file_path, sheet_names)
 
         # ── Extract embedded images from selected sheets ──
         uploaded_images = []

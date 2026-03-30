@@ -77,40 +77,114 @@ def list_xlsx_sheets(file_path: str) -> list[dict]:
     return sheets
 
 
-def xlsx_to_text(file_path: str, selected_sheets: list[str] | None = None) -> str:
+def xlsx_to_markdown(file_path: str, selected_sheets: list[str] | None = None) -> str:
     """
-    Convert selected sheets of an XLSX file to a text representation
-    suitable for passing to the LLM as prompt content.
-    Each sheet is rendered as a markdown table.
+    Convert selected sheets of an XLSX file to markdown suitable for LLM consumption.
+
+    Improvements over the naive flat-table approach:
+    - Merged cells: value shown only at the top-left cell; continuation cells are empty
+      (avoids duplicating the same label across N columns)
+    - Multiple table regions per sheet: detected by finding contiguous non-empty row blocks
+      and rendered as separate markdown tables
+    - Sparse / single-column rows: rendered as prose or key-value pairs instead of
+      broken tables
     """
     import openpyxl
-    wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-    parts = []
+
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    output = []
     sheet_names = selected_sheets if selected_sheets else wb.sheetnames
-    for name in sheet_names:
-        if name not in wb.sheetnames:
+
+    for sheet_name in sheet_names:
+        if sheet_name not in wb.sheetnames:
             continue
-        ws = wb[name]
-        parts.append(f"\n## Sheet: {name}\n")
-        rows = []
-        for row in ws.iter_rows(values_only=True):
-            if not any(cell is not None for cell in row):
+        ws = wb[sheet_name]
+        output.append(f"\n## Sheet: {sheet_name}\n")
+
+        # ── Resolve merged cells ──────────────────────────────────────────
+        # Only the top-left cell of each merge keeps its value.
+        # All continuation cells are treated as empty to prevent duplication.
+        merge_top_left_values: dict[tuple, object] = {}
+        merge_continuations: set[tuple] = set()
+        for merge in ws.merged_cells.ranges:
+            top_left_val = ws.cell(merge.min_row, merge.min_col).value
+            merge_top_left_values[(merge.min_row, merge.min_col)] = top_left_val
+            for r in range(merge.min_row, merge.max_row + 1):
+                for c in range(merge.min_col, merge.max_col + 1):
+                    if not (r == merge.min_row and c == merge.min_col):
+                        merge_continuations.add((r, c))
+
+        max_row = ws.max_row or 0
+        max_col = ws.max_column or 0
+
+        def get_val(r: int, c: int):
+            if (r, c) in merge_continuations:
+                return None
+            if (r, c) in merge_top_left_values:
+                return merge_top_left_values[(r, c)]
+            return ws.cell(r, c).value
+
+        def cell_str(v) -> str:
+            if v is None:
+                return ""
+            return str(v).strip().replace("\n", " ")
+
+        # ── Build 2-D grid ───────────────────────────────────────────────
+        grid: list[list[str]] = []
+        for r in range(1, max_row + 1):
+            grid.append([cell_str(get_val(r, c)) for c in range(1, max_col + 1)])
+
+        if not grid:
+            output.append("(empty)\n")
+            continue
+
+        def row_is_empty(row: list[str]) -> bool:
+            return all(v == "" for v in row)
+
+        # ── Detect and render contiguous non-empty row blocks ────────────
+        i = 0
+        while i < len(grid):
+            if row_is_empty(grid[i]):
+                i += 1
                 continue
-            rows.append([str(c) if c is not None else "" for c in row])
-        if not rows:
-            parts.append("(empty)\n")
-            continue
-        # Render as markdown table
-        col_count = max(len(r) for r in rows)
-        header = rows[0] + [""] * (col_count - len(rows[0]))
-        parts.append("| " + " | ".join(header) + " |")
-        parts.append("| " + " | ".join(["---"] * col_count) + " |")
-        for row in rows[1:]:
-            padded = row + [""] * (col_count - len(row))
-            parts.append("| " + " | ".join(padded) + " |")
-        parts.append("")
+
+            block_start = i
+            while i < len(grid) and not row_is_empty(grid[i]):
+                i += 1
+            block = grid[block_start:i]
+
+            # Find columns that have at least one non-empty value in this block
+            used_cols = [c for c in range(max_col) if any(row[c] != "" for row in block)]
+            if not used_cols:
+                continue
+
+            col_count = sum(1 for v in block[0] if v != "")
+
+            if len(block) >= 2 and col_count >= 2:
+                # Render as markdown table
+                header_cells = [block[0][c] if c < len(block[0]) else "" for c in used_cols]
+                output.append("| " + " | ".join(header_cells) + " |")
+                output.append("| " + " | ".join(["---"] * len(used_cols)) + " |")
+                for row in block[1:]:
+                    cells = [row[c] if c < len(row) else "" for c in used_cols]
+                    output.append("| " + " | ".join(cells) + " |")
+                output.append("")
+            else:
+                # Sparse block — render as prose / key-value
+                for row in block:
+                    non_empty = [v for v in row if v != ""]
+                    if len(non_empty) == 1:
+                        output.append(non_empty[0])
+                    elif len(non_empty) == 2:
+                        output.append(f"**{non_empty[0]}:** {non_empty[1]}")
+                    else:
+                        output.append("  ".join(non_empty))
+                output.append("")
+
+        output.append("---\n")
+
     wb.close()
-    return "\n".join(parts)
+    return "\n".join(output)
 
 
 def upload_to_gemini(file_path: str) -> str:

@@ -38,7 +38,7 @@ async def ingest_to_markdown(
     file_bytes: bytes,
     filename: str,
     owner: str,
-    parser: str = "markitdown",
+    parser: str = "openpyxl",
 ) -> dict:
     """
     Convert file → markdown (non-XLSX) or list sheets (XLSX).
@@ -47,6 +47,10 @@ async def ingest_to_markdown(
       { document_id, sheets: [...], is_xlsx: True }
     Non-XLSX returns:
       { document_id, markdown: "..." }
+
+    Default parser for XLSX is "openpyxl" (custom: handles merged cells,
+    multiple tables per sheet, sparse rows as prose).
+    "markitdown" is available as a secondary parser for non-XLSX formats.
     """
     db = get_db()
 
@@ -72,7 +76,7 @@ async def ingest_to_markdown(
                 "raw_storage_path": file_path,
                 "markdown_content": None,
                 "pipeline_status": "pending_sheet_selection",
-                "parser": "gemini",
+                "parser": "openpyxl",
             })
             .execute()
         )
