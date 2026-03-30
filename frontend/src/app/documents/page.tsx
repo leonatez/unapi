@@ -680,7 +680,7 @@ export default function DocumentsPage() {
   const [docs, setDocs]         = useState<Document[]>([]);
   const [loading, setLoading]   = useState(true);
   const [owner, setOwner]       = useState<"Monee" | "Bank">("Monee");
-  const [parser]                = useState("markitdown");
+  const [parser, setParser]     = useState("openpyxl");
   const [pipeline, setPipeline] = useState<PipelineState>({ step: "idle" });
   const [isXlsx, setIsXlsx]     = useState(false);
   const fileRef     = useRef<HTMLInputElement>(null);
@@ -926,9 +926,10 @@ export default function DocumentsPage() {
               <label className="text-[11px] text-stone-500 font-medium uppercase tracking-wide">Parser</label>
               <select
                 value={parser}
-                disabled
-                className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-[13px] text-stone-400 cursor-not-allowed"
+                onChange={e => setParser(e.target.value)}
+                className="bg-white border border-stone-200 rounded-xl px-3 py-2 text-[13px] text-stone-700"
               >
+                <option value="openpyxl">openpyxl (default)</option>
                 <option value="markitdown">markitdown</option>
               </select>
             </div>
