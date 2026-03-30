@@ -7,10 +7,15 @@ from app.api.routes import documents, apis, flows, compare, export, admin
 from app.core.config import get_settings
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
+# Keep noisy third-party libs at INFO
+logging.getLogger("httpx").setLevel(logging.INFO)
+logging.getLogger("httpcore").setLevel(logging.INFO)
+logging.getLogger("urllib3").setLevel(logging.INFO)
+logging.getLogger("google").setLevel(logging.INFO)
 
 
 @asynccontextmanager

@@ -320,6 +320,8 @@ def extract_all_from_xlsx(
         response = model.generate_content(content)
         raw = response.text
         logger.info("Gemini response received, raw length=%d chars", len(raw))
+        logger.debug("sheet_text sent to Gemini (first 2000 chars):\n%s", sheet_text[:2000])
+        logger.debug("Gemini raw response (first 2000 chars):\n%s", raw[:2000])
         result = _parse_llm_json(raw)
         if isinstance(result, list):
             result = {"flows": result}
