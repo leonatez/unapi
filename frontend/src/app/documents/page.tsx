@@ -842,6 +842,16 @@ export default function DocumentsPage() {
     }
   };
 
+  // Direct approve for documents already at extraction_review (e.g. after page refresh)
+  const approveDoc = async (docId: string) => {
+    try {
+      await api.approveExtraction(docId);
+      load();
+    } catch (err: unknown) {
+      console.error("Approve failed", err);
+    }
+  };
+
   const handleBackToMarkdown = async () => {
     if (pipeline.step !== "extraction_review") return;
     const { docId, draft } = pipeline;
@@ -1203,6 +1213,8 @@ export default function DocumentsPage() {
                         ? "awaiting extraction"
                         : doc.pipeline_status === "pending_sheet_selection"
                         ? "select sheets"
+                        : doc.pipeline_status === "extraction_review"
+                        ? "pending approval"
                         : doc.pipeline_status}
                     </span>
                   )}
@@ -1218,6 +1230,14 @@ export default function DocumentsPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-indigo-200 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 transition-colors font-medium"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> Resume
+                  </button>
+                )}
+                {doc.pipeline_status === "extraction_review" && (
+                  <button
+                    onClick={() => approveDoc(doc.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition-colors font-medium"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" /> Approve
                   </button>
                 )}
                 <Link
