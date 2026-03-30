@@ -114,15 +114,15 @@ def confirm_sheet_selection(
     flow_sequence: dict[str, list[dict]] | None = None,
 ) -> dict:
     """
-    Upload the saved file to Gemini File API using selected sheets.
-    Updates document with gemini_file_uri + selected_sheets + sheet_kinds,
-    sets pipeline_status = "file_ready".
+    Save sheet selection metadata and set pipeline_status = "file_ready".
+    XLSX extraction uses the local file directly (extract_all_from_xlsx),
+    so no Gemini File API upload is needed here.
     """
     db = get_db()
 
     doc_row = (
         db.table("api_document")
-        .select("raw_storage_path")
+        .select("id")
         .eq("id", document_id)
         .single()
         .execute()
@@ -130,20 +130,16 @@ def confirm_sheet_selection(
     if not doc_row.data:
         raise ValueError(f"Document {document_id} not found")
 
-    file_path = doc_row.data["raw_storage_path"]
     logger.info("confirm_sheet_selection doc=%s sheets=%s", document_id, selected_sheets)
-    gemini_uri = upload_to_gemini(file_path)
-    logger.info("Gemini URI stored for doc=%s uri=%s", document_id, gemini_uri)
 
     db.table("api_document").update({
-        "gemini_file_uri": gemini_uri,
         "selected_sheets": selected_sheets,
         "sheet_kinds": sheet_kinds or {},
         "flow_sequence": flow_sequence or {},
         "pipeline_status": "file_ready",
     }).eq("id", document_id).execute()
 
-    return {"status": "ok", "gemini_file_uri": gemini_uri}
+    return {"status": "ok"}
 
 
 # ─── Phase 2 ──────────────────────────────────────────────────

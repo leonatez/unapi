@@ -37,7 +37,7 @@ export const api = {
     sheetKinds: Record<string, string>,
     flowSequence?: Record<string, { sheet_name: string; label: string }[]>,
   ) =>
-    req<{ status: string; gemini_file_uri: string }>(`/documents/${id}/select-sheets`, {
+    req<{ status: string }>(`/documents/${id}/select-sheets`, {
       method: "POST",
       body: JSON.stringify({
         selected_sheets: selectedSheets,
