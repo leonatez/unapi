@@ -338,6 +338,179 @@ def extract_all_from_xlsx(
         return {"flows": [], "_error": str(e)}
 
 
+def run_playground(
+    file_bytes: bytes,
+    filename: str,
+    sheet_selection: dict | None = None,
+    flow_sequence: dict | None = None,
+) -> dict:
+    """
+    Run a full extraction and return every intermediate step for debugging.
+    sheet_selection: { "selected_sheets": [...], "sheet_kinds": {...} }
+    flow_sequence:   { flow_name: [{"sheet_name": ..., "label": ...}] }
+    Returns: { "steps": [{"label", "type", "content"}], "error": str|None }
+    """
+    import io as _io
+    import os
+    import tempfile
+
+    steps: list[dict] = []
+
+    def _add(label: str, type_: str, content):
+        steps.append({"label": label, "type": type_, "content": content})
+
+    try:
+        _init_client()
+        s = get_settings()
+
+        selected_sheets = (sheet_selection or {}).get("selected_sheets")
+        sheet_kinds = (sheet_selection or {}).get("sheet_kinds")
+
+        # ── Build hints string ──
+        kind_descriptions = {
+            "api_spec":   "contains API endpoint definitions (URL, request/response fields)",
+            "error_code": "reference table of result/error codes",
+            "edge_case":  "runtime handling logic (retry, inquiry, timeouts)",
+            "mapping":    "code mapping or lookup table",
+            "flow":       "flow diagram or sequence overview",
+            "metadata":   "changelog, environment info, overview",
+        }
+        sheet_hint = ""
+        if selected_sheets:
+            lines = ["Sheet context for this document:"]
+            for name in selected_sheets:
+                kind = (sheet_kinds or {}).get(name, "api_spec")
+                desc = kind_descriptions.get(kind, "")
+                lines.append(f'  - "{name}": {kind.replace("_", " ").title()} — {desc}')
+            lines.append("\nFocus ONLY on the sheets listed above. Ignore all other sheets.")
+            sheet_hint = "\n" + "\n".join(lines) + "\n"
+
+        if flow_sequence:
+            seq_lines = ["\nFlow sequence hints (user-defined):"]
+            for flow_name, fsteps in flow_sequence.items():
+                seq_lines.append(f'  Flow "{flow_name}":')
+                for i, step in enumerate(fsteps, 1):
+                    seq_lines.append(
+                        f'    Step {i}: "{step["sheet_name"]}" — {step.get("label", step["sheet_name"])}'
+                    )
+            sheet_hint += "\n".join(seq_lines) + "\n"
+
+        _add(
+            "Sheet / Flow Hints",
+            "text",
+            sheet_hint.strip() if sheet_hint.strip() else "(none — all sheets, no flow sequence)",
+        )
+
+        is_xlsx = filename.lower().endswith(".xlsx")
+
+        if is_xlsx:
+            import openpyxl
+            from app.services.parser.ingestion import xlsx_to_markdown
+
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
+
+            try:
+                wb = openpyxl.load_workbook(tmp_path, data_only=True)
+                sheet_names = selected_sheets if selected_sheets else list(wb.sheetnames)
+
+                sheet_text = xlsx_to_markdown(tmp_path, sheet_names)
+                _add("Sheet Markdown (XLSX → text)", "markdown", sheet_text)
+
+                uploaded_images = []
+                image_log = []
+                for sname in sheet_names:
+                    if sname not in wb.sheetnames:
+                        continue
+                    ws = wb[sname]
+                    for img in getattr(ws, "_images", []):
+                        try:
+                            img_bytes = img._data()
+                            if img_bytes[:4] == b'\x89PNG':
+                                mime, ext = "image/png", "png"
+                            elif img_bytes[:2] == b'\xff\xd8':
+                                mime, ext = "image/jpeg", "jpg"
+                            else:
+                                mime, ext = "image/png", "png"
+                            gfile = genai.upload_file(
+                                path=_io.BytesIO(img_bytes),
+                                mime_type=mime,
+                                display_name=f"{sname}_image.{ext}",
+                            )
+                            uploaded_images.append(gfile)
+                            image_log.append(
+                                f"Sheet '{sname}': {mime} ({len(img_bytes):,} bytes) → {gfile.name}"
+                            )
+                        except Exception as ex:
+                            image_log.append(f"Sheet '{sname}': FAILED — {ex}")
+                wb.close()
+
+                _add(
+                    f"Images Uploaded ({len(uploaded_images)} of {len(image_log)} found)",
+                    "text",
+                    "\n".join(image_log) if image_log else "(no embedded images found)",
+                )
+
+                prompt_text = get_prompt("extract_all_file").replace("{sheet_hint}", sheet_hint)
+                _add("System Prompt", "prompt", get_prompt("system"))
+                _add("Final Prompt (with hints)", "prompt", prompt_text)
+
+                model = genai.GenerativeModel(
+                    model_name=s.gemini_model,
+                    system_instruction=get_prompt("system"),
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                    ),
+                )
+                response = model.generate_content([*uploaded_images, sheet_text, prompt_text])
+                raw = response.text
+                _add("Raw AI Response", "json_raw", raw)
+
+                result = _parse_llm_json(raw)
+                if isinstance(result, list):
+                    result = {"flows": result}
+                _add("Parsed Result", "json", result)
+
+            finally:
+                os.unlink(tmp_path)
+
+        else:
+            # Non-XLSX: convert via markitdown then use text extraction
+            from markitdown import MarkItDown
+            md_result = MarkItDown().convert(_io.BytesIO(file_bytes))
+            markdown = md_result.text_content
+            _add("Document Markdown", "markdown", markdown)
+
+            prompt_text = get_prompt("extract_all").replace("{content}", markdown)
+            _add("System Prompt", "prompt", get_prompt("system"))
+            _add("Final Prompt", "prompt", prompt_text)
+
+            model = genai.GenerativeModel(
+                model_name=s.gemini_model,
+                system_instruction=get_prompt("system"),
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                ),
+            )
+            response = model.generate_content(prompt_text)
+            raw = response.text
+            _add("Raw AI Response", "json_raw", raw)
+
+            result = _parse_llm_json(raw)
+            if isinstance(result, list):
+                result = {"flows": result}
+            _add("Parsed Result", "json", result)
+
+        return {"steps": steps, "error": None}
+
+    except Exception as e:
+        _add("Error", "error", traceback.format_exc())
+        return {"steps": steps, "error": str(e)}
+
+
 def extract_document_metadata(full_markdown: str, filename: str) -> dict:
     """Extract high-level document metadata from the full markdown."""
     _init_client()

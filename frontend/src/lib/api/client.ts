@@ -133,6 +133,22 @@ export const api = {
     }),
   resetPrompt: (key: string) =>
     req<{ status: string; key: string; value: string }>(`/admin/prompts/${key}/reset`, { method: "POST" }),
+
+  // Admin — playground
+  runPlayground: (
+    specFile: File,
+    sheetSelection?: { selected_sheets: string[]; sheet_kinds: Record<string, string> },
+    flowSequence?: Record<string, { sheet_name: string; label: string }[]>,
+  ) => {
+    const form = new FormData();
+    form.append("spec_file", specFile);
+    if (sheetSelection) form.append("sheet_selection", JSON.stringify(sheetSelection));
+    if (flowSequence) form.append("flow_sequence", JSON.stringify(flowSequence));
+    return fetch(`${BASE}/admin/playground/run`, { method: "POST", body: form }).then((r) => {
+      if (!r.ok) return r.json().then((e) => Promise.reject(new Error(e.detail || r.statusText)));
+      return r.json() as Promise<PlaygroundResult>;
+    });
+  },
 };
 
 // Types
@@ -322,4 +338,15 @@ export interface DiffItem {
 export interface CompareResult {
   summary: { breaking: number; risky: number; info: number; total: number };
   diffs: DiffItem[];
+}
+
+export interface PlaygroundStep {
+  label: string;
+  type: "text" | "markdown" | "prompt" | "json_raw" | "json" | "error";
+  content: string | object;
+}
+
+export interface PlaygroundResult {
+  steps: PlaygroundStep[];
+  error: string | null;
 }
