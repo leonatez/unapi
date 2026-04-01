@@ -363,8 +363,30 @@ def run_playground(
         _init_client()
         s = get_settings()
 
-        selected_sheets = (sheet_selection or {}).get("selected_sheets")
-        sheet_kinds = (sheet_selection or {}).get("sheet_kinds")
+        # ── Normalise sheet_selection ──
+        # Supports both the UI-saved format {"selected_sheets", "sheet_kinds"}
+        # and the exported file format {"selected", "kinds"}
+        sel = sheet_selection or {}
+        selected_sheets = sel.get("selected_sheets") or sel.get("selected") or None
+        sheet_kinds = sel.get("sheet_kinds") or sel.get("kinds") or None
+
+        # ── Normalise flow_sequence ──
+        # Supports both the pipeline format {flow_name: [{"sheet_name", "label"}]}
+        # and the exported file format {"flows": [...], "sequences": {flow_name: [{"sheetName", "label"}]}}
+        norm_flow_sequence: dict | None = None
+        if flow_sequence:
+            raw_seq = flow_sequence.get("sequences") if "sequences" in flow_sequence else flow_sequence
+            norm_flow_sequence = {}
+            for flow_name, fsteps in raw_seq.items():
+                norm_steps = []
+                for step in fsteps:
+                    if isinstance(step, str):
+                        norm_steps.append({"sheet_name": step, "label": step})
+                    else:
+                        # camelCase sheetName → snake_case sheet_name
+                        sheet = step.get("sheet_name") or step.get("sheetName", "")
+                        norm_steps.append({"sheet_name": sheet, "label": step.get("label", sheet)})
+                norm_flow_sequence[flow_name] = norm_steps
 
         # ── Build hints string ──
         kind_descriptions = {
@@ -385,13 +407,13 @@ def run_playground(
             lines.append("\nFocus ONLY on the sheets listed above. Ignore all other sheets.")
             sheet_hint = "\n" + "\n".join(lines) + "\n"
 
-        if flow_sequence:
+        if norm_flow_sequence:
             seq_lines = ["\nFlow sequence hints (user-defined):"]
-            for flow_name, fsteps in flow_sequence.items():
+            for flow_name, fsteps in norm_flow_sequence.items():
                 seq_lines.append(f'  Flow "{flow_name}":')
                 for i, step in enumerate(fsteps, 1):
                     seq_lines.append(
-                        f'    Step {i}: "{step["sheet_name"]}" — {step.get("label", step["sheet_name"])}'
+                        f'    Step {i}: "{step["sheet_name"]}" — {step["label"]}'
                     )
             sheet_hint += "\n".join(seq_lines) + "\n"
 
