@@ -311,14 +311,17 @@ function Playground() {
       let selection;
       let sequence;
 
-      if (selectionFile) {
-        const text = await selectionFile.text();
-        selection = JSON.parse(text);
-      }
-      if (sequenceFile) {
-        const text = await sequenceFile.text();
-        sequence = JSON.parse(text);
-      }
+      const parseJsonFile = async (file: File, label: string) => {
+        const text = (await file.text()).replace(/^\uFEFF/, ""); // strip BOM
+        try {
+          return JSON.parse(text);
+        } catch {
+          throw new Error(`${label}: invalid JSON — ${file.name}`);
+        }
+      };
+
+      if (selectionFile) selection = await parseJsonFile(selectionFile, "Sheet selection");
+      if (sequenceFile) sequence = await parseJsonFile(sequenceFile, "Flow sequence");
 
       const result = await api.runPlayground(specFile, selection, sequence);
       setSteps(result.steps);

@@ -144,8 +144,13 @@ export const api = {
     form.append("spec_file", specFile);
     if (sheetSelection) form.append("sheet_selection", JSON.stringify(sheetSelection));
     if (flowSequence) form.append("flow_sequence", JSON.stringify(flowSequence));
-    return fetch(`${BASE}/admin/playground/run`, { method: "POST", body: form }).then((r) => {
-      if (!r.ok) return r.json().then((e) => Promise.reject(new Error(e.detail || r.statusText)));
+    return fetch(`${BASE}/admin/playground/run`, { method: "POST", body: form }).then(async (r) => {
+      if (!r.ok) {
+        const text = await r.text();
+        let msg = `${r.status} ${r.statusText}`;
+        try { msg = JSON.parse(text).detail || msg; } catch { /* non-JSON error body */ }
+        return Promise.reject(new Error(msg));
+      }
       return r.json() as Promise<PlaygroundResult>;
     });
   },
