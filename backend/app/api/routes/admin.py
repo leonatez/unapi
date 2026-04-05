@@ -40,9 +40,33 @@ async def playground_run(
     sheet_selection: str | None = Form(None),
     flow_sequence: str | None = Form(None),
 ):
+    import asyncio
+    import threading
+    from fastapi.responses import StreamingResponse
+    from app.services.parser.llm_extractor import stream_playground
+
     file_bytes = await spec_file.read()
+    filename = spec_file.filename or "upload"
     selection = json.loads(sheet_selection) if sheet_selection else None
     sequence = json.loads(flow_sequence) if flow_sequence else None
 
-    from app.services.parser.llm_extractor import run_playground
-    return run_playground(file_bytes, spec_file.filename or "upload", selection, sequence)
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def producer():
+        try:
+            for step in stream_playground(file_bytes, filename, selection, sequence):
+                asyncio.run_coroutine_threadsafe(queue.put(step), loop).result()
+        finally:
+            asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+
+    threading.Thread(target=producer, daemon=True).start()
+
+    async def generate():
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield json.dumps(item) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")

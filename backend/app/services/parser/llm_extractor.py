@@ -338,41 +338,33 @@ def extract_all_from_xlsx(
         return {"flows": [], "_error": str(e)}
 
 
-def run_playground(
+def stream_playground(
     file_bytes: bytes,
     filename: str,
     sheet_selection: dict | None = None,
     flow_sequence: dict | None = None,
-) -> dict:
+):
     """
-    Run a full extraction and return every intermediate step for debugging.
-    sheet_selection: { "selected_sheets": [...], "sheet_kinds": {...} }
-    flow_sequence:   { flow_name: [{"sheet_name": ..., "label": ...}] }
-    Returns: { "steps": [{"label", "type", "content"}], "error": str|None }
+    Generator: yields PlaygroundStep dicts as each stage completes.
+    type='status' steps are progress indicators (not shown as cards in UI).
     """
     import io as _io
     import os
     import tempfile
 
-    steps: list[dict] = []
-
-    def _add(label: str, type_: str, content):
-        steps.append({"label": label, "type": type_, "content": content})
+    def _step(label: str, type_: str, content):
+        return {"label": label, "type": type_, "content": content}
 
     try:
         _init_client()
         s = get_settings()
 
         # ── Normalise sheet_selection ──
-        # Supports both the UI-saved format {"selected_sheets", "sheet_kinds"}
-        # and the exported file format {"selected", "kinds"}
         sel = sheet_selection or {}
         selected_sheets = sel.get("selected_sheets") or sel.get("selected") or None
         sheet_kinds = sel.get("sheet_kinds") or sel.get("kinds") or None
 
         # ── Normalise flow_sequence ──
-        # Supports both the pipeline format {flow_name: [{"sheet_name", "label"}]}
-        # and the exported file format {"flows": [...], "sequences": {flow_name: [{"sheetName", "label"}]}}
         norm_flow_sequence: dict | None = None
         if flow_sequence:
             raw_seq = flow_sequence.get("sequences") if "sequences" in flow_sequence else flow_sequence
@@ -383,7 +375,6 @@ def run_playground(
                     if isinstance(step, str):
                         norm_steps.append({"sheet_name": step, "label": step})
                     else:
-                        # camelCase sheetName → snake_case sheet_name
                         sheet = step.get("sheet_name") or step.get("sheetName", "")
                         norm_steps.append({"sheet_name": sheet, "label": step.get("label", sheet)})
                 norm_flow_sequence[flow_name] = norm_steps
@@ -412,14 +403,11 @@ def run_playground(
             for flow_name, fsteps in norm_flow_sequence.items():
                 seq_lines.append(f'  Flow "{flow_name}":')
                 for i, step in enumerate(fsteps, 1):
-                    seq_lines.append(
-                        f'    Step {i}: "{step["sheet_name"]}" — {step["label"]}'
-                    )
+                    seq_lines.append(f'    Step {i}: "{step["sheet_name"]}" — {step["label"]}')
             sheet_hint += "\n".join(seq_lines) + "\n"
 
-        _add(
-            "Sheet / Flow Hints",
-            "text",
+        yield _step(
+            "Sheet / Flow Hints", "text",
             sheet_hint.strip() if sheet_hint.strip() else "(none — all sheets, no flow sequence)",
         )
 
@@ -434,12 +422,13 @@ def run_playground(
                 tmp_path = tmp.name
 
             try:
+                yield _step("status", "status", "Parsing XLSX sheets to markdown…")
                 wb = openpyxl.load_workbook(tmp_path, data_only=True)
                 sheet_names = selected_sheets if selected_sheets else list(wb.sheetnames)
-
                 sheet_text = xlsx_to_markdown(tmp_path, sheet_names)
-                _add("Sheet Markdown (XLSX → text)", "markdown", sheet_text)
+                yield _step("Sheet Markdown (XLSX → text)", "markdown", sheet_text)
 
+                yield _step("status", "status", "Uploading embedded images to Gemini…")
                 uploaded_images = []
                 image_log = []
                 for sname in sheet_names:
@@ -467,17 +456,16 @@ def run_playground(
                         except Exception as ex:
                             image_log.append(f"Sheet '{sname}': FAILED — {ex}")
                 wb.close()
-
-                _add(
-                    f"Images Uploaded ({len(uploaded_images)} of {len(image_log)} found)",
-                    "text",
+                yield _step(
+                    f"Images Uploaded ({len(uploaded_images)} of {len(image_log)} found)", "text",
                     "\n".join(image_log) if image_log else "(no embedded images found)",
                 )
 
                 prompt_text = get_prompt("extract_all_file").replace("{sheet_hint}", sheet_hint)
-                _add("System Prompt", "prompt", get_prompt("system"))
-                _add("Final Prompt (with hints)", "prompt", prompt_text)
+                yield _step("System Prompt", "prompt", get_prompt("system"))
+                yield _step("Final Prompt (with hints)", "prompt", prompt_text)
 
+                yield _step("status", "status", "Calling Gemini AI — this may take 30–90 seconds…")
                 model = genai.GenerativeModel(
                     model_name=s.gemini_model,
                     system_instruction=get_prompt("system"),
@@ -488,27 +476,28 @@ def run_playground(
                 )
                 response = model.generate_content([*uploaded_images, sheet_text, prompt_text])
                 raw = response.text
-                _add("Raw AI Response", "json_raw", raw)
+                yield _step("Raw AI Response", "json_raw", raw)
 
                 result = _parse_llm_json(raw)
                 if isinstance(result, list):
                     result = {"flows": result}
-                _add("Parsed Result", "json", result)
+                yield _step("Parsed Result", "json", result)
 
             finally:
                 os.unlink(tmp_path)
 
         else:
-            # Non-XLSX: convert via markitdown then use text extraction
+            yield _step("status", "status", "Converting document to markdown…")
             from markitdown import MarkItDown
             md_result = MarkItDown().convert(_io.BytesIO(file_bytes))
             markdown = md_result.text_content
-            _add("Document Markdown", "markdown", markdown)
+            yield _step("Document Markdown", "markdown", markdown)
 
             prompt_text = get_prompt("extract_all").replace("{content}", markdown)
-            _add("System Prompt", "prompt", get_prompt("system"))
-            _add("Final Prompt", "prompt", prompt_text)
+            yield _step("System Prompt", "prompt", get_prompt("system"))
+            yield _step("Final Prompt", "prompt", prompt_text)
 
+            yield _step("status", "status", "Calling Gemini AI — this may take 30–90 seconds…")
             model = genai.GenerativeModel(
                 model_name=s.gemini_model,
                 system_instruction=get_prompt("system"),
@@ -519,18 +508,15 @@ def run_playground(
             )
             response = model.generate_content(prompt_text)
             raw = response.text
-            _add("Raw AI Response", "json_raw", raw)
+            yield _step("Raw AI Response", "json_raw", raw)
 
             result = _parse_llm_json(raw)
             if isinstance(result, list):
                 result = {"flows": result}
-            _add("Parsed Result", "json", result)
-
-        return {"steps": steps, "error": None}
+            yield _step("Parsed Result", "json", result)
 
     except Exception as e:
-        _add("Error", "error", traceback.format_exc())
-        return {"steps": steps, "error": str(e)}
+        yield _step("Error", "error", traceback.format_exc())
 
 
 def extract_document_metadata(full_markdown: str, filename: str) -> dict:

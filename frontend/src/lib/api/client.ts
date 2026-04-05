@@ -134,25 +134,40 @@ export const api = {
   resetPrompt: (key: string) =>
     req<{ status: string; key: string; value: string }>(`/admin/prompts/${key}/reset`, { method: "POST" }),
 
-  // Admin — playground
-  runPlayground: (
+  // Admin — playground (streaming NDJSON)
+  runPlayground: async (
     specFile: File,
     sheetSelection?: { selected_sheets: string[]; sheet_kinds: Record<string, string> },
     flowSequence?: Record<string, { sheet_name: string; label: string }[]>,
-  ) => {
+    onStep?: (step: PlaygroundStep) => void,
+  ): Promise<void> => {
     const form = new FormData();
     form.append("spec_file", specFile);
     if (sheetSelection) form.append("sheet_selection", JSON.stringify(sheetSelection));
     if (flowSequence) form.append("flow_sequence", JSON.stringify(flowSequence));
-    return fetch(`${BASE}/admin/playground/run`, { method: "POST", body: form }).then(async (r) => {
-      if (!r.ok) {
-        const text = await r.text();
-        let msg = `${r.status} ${r.statusText}`;
-        try { msg = JSON.parse(text).detail || msg; } catch { /* non-JSON error body */ }
-        return Promise.reject(new Error(msg));
+
+    const r = await fetch(`${BASE}/admin/playground/run`, { method: "POST", body: form });
+    if (!r.ok) {
+      const text = await r.text();
+      let msg = `${r.status} ${r.statusText}`;
+      try { msg = JSON.parse(text).detail || msg; } catch { /* non-JSON */ }
+      throw new Error(msg);
+    }
+
+    const reader = r.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try { onStep?.(JSON.parse(line) as PlaygroundStep); } catch { /* skip malformed */ }
       }
-      return r.json() as Promise<PlaygroundResult>;
-    });
+    }
   },
 };
 

@@ -298,40 +298,47 @@ function Playground() {
   const [selectionFile, setSelectionFile] = useState<File | null>(null);
   const [sequenceFile, setSequenceFile] = useState<File | null>(null);
   const [running, setRunning] = useState(false);
-  const [steps, setSteps] = useState<PlaygroundStep[] | null>(null);
+  const [steps, setSteps] = useState<PlaygroundStep[]>([]);
+  const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   const run = async () => {
     if (!specFile) return;
     setRunning(true);
-    setSteps(null);
+    setSteps([]);
     setError(null);
+    setCurrentStep("Preparing…");
 
     try {
-      let selection;
-      let sequence;
-
       const parseJsonFile = async (file: File, label: string) => {
-        const text = (await file.text()).replace(/^\uFEFF/, ""); // strip BOM
-        try {
-          return JSON.parse(text);
-        } catch {
-          throw new Error(`${label}: invalid JSON — ${file.name}`);
-        }
+        const text = (await file.text()).replace(/^\uFEFF/, "");
+        try { return JSON.parse(text); }
+        catch { throw new Error(`${label}: invalid JSON — ${file.name}`); }
       };
 
-      if (selectionFile) selection = await parseJsonFile(selectionFile, "Sheet selection");
-      if (sequenceFile) sequence = await parseJsonFile(sequenceFile, "Flow sequence");
+      const selection = selectionFile ? await parseJsonFile(selectionFile, "Sheet selection") : undefined;
+      const sequence  = sequenceFile  ? await parseJsonFile(sequenceFile,  "Flow sequence")   : undefined;
 
-      const result = await api.runPlayground(specFile, selection, sequence);
-      setSteps(result.steps);
-      if (result.error) setError(result.error);
+      await api.runPlayground(specFile, selection, sequence, (step) => {
+        if (step.type === "status") {
+          setCurrentStep(step.content as string);
+          return;
+        }
+        setCurrentStep(step.label);
+        setSteps((prev) => [...prev, step]);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunning(false);
+      setCurrentStep(null);
     }
   };
+
+  const hasSteps = steps.length > 0;
+  const hasError = steps.some((s) => s.type === "error");
 
   return (
     <div className="flex flex-col gap-5">
@@ -399,22 +406,31 @@ function Playground() {
         </div>
       )}
 
-      {/* Steps */}
-      {steps && (
+      {/* Steps — appear live as they stream in */}
+      {(hasSteps || running) && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-700">
-              Extraction Steps <span className="text-gray-400 font-normal">({steps.length})</span>
+              Extraction Steps{hasSteps && <span className="text-gray-400 font-normal ml-1">({steps.length})</span>}
             </h3>
-            {!error && steps.length > 0 && (
+            {!running && hasSteps && !hasError && (
               <span className="flex items-center gap-1 text-xs text-emerald-600">
                 <CheckCircle className="w-3.5 h-3.5" /> Complete
               </span>
             )}
           </div>
-          {steps.map((step, i) => (
-            <StepCard key={i} step={step} index={i} />
-          ))}
+
+          {steps.map((step, i) => <StepCard key={i} step={step} index={i} />)}
+
+          {/* Live current-step indicator */}
+          {running && currentStep && (
+            <div className="flex items-center gap-2.5 px-4 py-3 border border-indigo-200 bg-indigo-50 rounded-xl">
+              <Loader2 className="w-4 h-4 animate-spin text-indigo-500 shrink-0" />
+              <span className="text-sm text-indigo-700 font-medium">{currentStep}</span>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
         </div>
       )}
     </div>
