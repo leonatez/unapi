@@ -213,6 +213,54 @@ def approve_extraction(document_id: str):
     return {"status": "ok", "document_id": document_id, **stats}
 
 
+# ─── JSON Import (skip AI extraction) ─────────────────────────
+
+class ImportDocumentBody(BaseModel):
+    name: str
+    owner: str
+    partner_name: Optional[str] = None
+    flows: list[dict]
+
+
+@router.post("/import")
+def import_document(body: ImportDocumentBody):
+    """
+    Import a pre-built JSON document directly, skipping file upload and AI extraction.
+    Accepts flows in the same ExtractionDraft format used by the approve endpoint.
+    Useful for manually curated API specs (e.g. from /read-excel skill output).
+    Returns { document_id, flows, apis, edge_cases }.
+    """
+    if body.owner not in ("Monee", "Bank"):
+        raise HTTPException(400, "owner must be 'Monee' or 'Bank'")
+    if not body.flows:
+        raise HTTPException(400, "flows must not be empty")
+
+    db = get_db()
+
+    doc_row = (
+        db.table("api_document")
+        .insert({
+            "name": body.name,
+            "owner": body.owner,
+            "partner_name": body.partner_name,
+            "raw_format": "json",
+            "pipeline_status": "extraction_review",
+            "extraction_draft": {"flows": body.flows},
+            "parser": "manual",
+        })
+        .execute()
+    )
+    document_id = doc_row.data[0]["id"]
+
+    try:
+        stats = persist_extraction(document_id)
+    except Exception as e:
+        logger.error("import failed doc=%s\n%s", document_id, traceback.format_exc())
+        raise HTTPException(500, f"Import failed: {e}")
+
+    return {"status": "ok", "document_id": document_id, **stats}
+
+
 # ─── List / Get / Delete ───────────────────────────────────────
 
 @router.get("/")
